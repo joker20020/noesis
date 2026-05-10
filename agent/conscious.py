@@ -157,7 +157,11 @@ class ConsciousLoop:
             if self._aborted:
                 self._history.append(Message.text_msg("system", "[Interrupted]"))
                 return "[Interrupted]"
+            
             self._turn_count += 1
+            await self._neo4j.run(
+                "MATCH (s:Session {session_id: $sid}) SET s.turn_count = $tc",
+                {"sid": self.session_id, "tc": self._turn_count})
 
             if self._turn_count > 1 and self._turn_count % 5 == 0:
                 raw = [_msg_to_dict(m) for m in self._history]
@@ -251,9 +255,6 @@ class ConsciousLoop:
             if len(self._last_20_summaries) > 20:
                 self._last_20_summaries = self._last_20_summaries[-20:]
 
-            await self._neo4j.run(
-                "MATCH (s:Session {session_id: $sid}) SET s.turn_count = $tc",
-                {"sid": self.session_id, "tc": self._turn_count})
 
         if not is_ephemeral:
             await self._finalize_session()
