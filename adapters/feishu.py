@@ -55,7 +55,7 @@ class _FeishuHandler(lark.ws.EventHandler):
             return
         chat_id = event.message.chat_id
 
-        result = await self._engine.run(text, session_id=f"fs_{chat_id}")
+        result = await self._engine.run(text)
         # Split and reply
         for i in range(0, len(result), 4000):
             reply = result[i:i+4000]

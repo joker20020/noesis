@@ -29,10 +29,8 @@ class PlatformConfig(BaseSettings):
     )
     # Web UI (always on via uvicorn)
     web_enabled: bool = True
-    # WeChat — OpenClaw Gateway v3 protocol
+    # WeChat — direct iLink API (QR login, no external deps)
     wechat_enabled: bool = False
-    wechat_gateway_host: str = "127.0.0.1"
-    wechat_gateway_port: int = 18789
     # QQ — Tencent official botpy SDK
     qq_enabled: bool = False
     qq_app_id: str = ""

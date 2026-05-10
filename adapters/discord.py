@@ -57,7 +57,7 @@ class DiscordAdapter:
                 return
 
             async with message.channel.typing():
-                result = await self._engine.run(text, session_id=f"dc_{message.author.id}")
+                result = await self._engine.run(text)
                 for i in range(0, len(result), 1900):
                     await message.reply(result[i:i+1900])
 

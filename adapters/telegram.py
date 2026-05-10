@@ -36,7 +36,7 @@ class TelegramAdapter:
             if not text.strip():
                 return
             await ctx.bot.send_chat_action(chat_id=update.effective_chat.id, action="typing")
-            result = await self._engine.run(text, session_id=f"{self._session_prefix}_{uid}")
+            result = await self._engine.run(text)
             for i in range(0, len(result), 4000):
                 await update.message.reply_text(result[i:i+4000])
 

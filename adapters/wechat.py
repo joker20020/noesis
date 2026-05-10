@@ -1,179 +1,143 @@
-"""OpenClaw Gateway WebSocket v3 protocol adapter.
+"""WeChat Bot adapter — GA-compatible iLink API with async agent.
 
-Compatible with @tencent-weixin/openclaw-weixin plugin.
-The plugin handles all WeChat iLink protocol complexity internally
-and communicates with infoCap via the standard Gateway WS protocol.
-
-Plugin connects to: ws://127.0.0.1:18789
+GA reference: https://github.com/lsdefine/GenericAgent/blob/main/frontends/wechatapp.py
 """
+import asyncio, json, random, time, uuid, struct, base64
+from pathlib import Path
 
-import asyncio
-import json
-import time
-import uuid
+import httpx
 
-try:
-    import websockets
-    HAS_WS = True
-except ImportError:
-    HAS_WS = False
+API_BASE = "https://ilinkai.weixin.qq.com"
+TOKEN_FILE = Path.home() / ".wxbot" / "token.json"
+VER = "2.1.10"
+MSG_USER, MSG_BOT = 1, 2
+ITEM_TEXT, ITEM_IMAGE, ITEM_FILE, ITEM_VIDEO = 1, 2, 4, 5
 
-PROTOCOL_VERSION = 3
-DEFAULT_PORT = 18789
-
-
-class GatewayProtocol:
-    """OpenClaw Gateway WebSocket v3 protocol handler."""
-
-    def __init__(self, engine, host: str = "127.0.0.1", port: int = DEFAULT_PORT):
+# ── adapter ──
+class WeChatAdapter:
+    def __init__(self, engine):
         self._engine = engine
-        self._host = host
-        self._port = port
-        self._running = False
-        self._conn_id = None
-        self._tick_count = 0
+        self._token = None
+        self._bot_id = None
+        self._buf = ""
+        self._seen = set()
+        self._session = None
 
     async def start(self):
-        if not HAS_WS:
-            print("[Gateway] websockets not installed: pip install websockets")
-            return
+        TOKEN_FILE.parent.mkdir(parents=True, exist_ok=True)
+        self._session = httpx.AsyncClient(timeout=httpx.Timeout(65, connect=10))
 
-        self._running = True
-        self._conn_id = uuid.uuid4().hex[:8]
-        print(f"[Gateway] Listening on ws://{self._host}:{self._port}")
-        print(f"[Gateway] Protocol v{PROTOCOL_VERSION}, connId: {self._conn_id}")
-        print(f"[Gateway] Ready for openclaw-weixin plugin connection")
+        await self._load_token()
+        if not self._token:
+            await self._qr_login()
 
-        async def handle(ws):
-            await self._on_connect(ws)
-            async for raw in ws:
-                try:
-                    frame = json.loads(raw)
-                    await self._handle_frame(ws, frame)
-                except Exception as e:
-                    print(f"[Gateway] Frame error: {e}")
-
-        try:
-            async with websockets.serve(handle, self._host, self._port):
-                await asyncio.Future()  # Run forever
-        except OSError as e:
-            print(f"[Gateway] Port {self._port} in use: {e}")
+        print(f"[WeChat] Bot connected: {self._bot_id}")
+        while True:
+            try:
+                msgs = await self._get_updates()
+                for msg in msgs:
+                    await self._on_message(msg)
+            except KeyboardInterrupt:
+                break
+            except Exception as e:
+                print(f"[WeChat] Error: {e}"); await asyncio.sleep(5)
 
     async def stop(self):
-        self._running = False
+        try: await self._session.aclose()
+        except Exception: pass
 
-    async def _on_connect(self, ws):
-        """Send connection challenge immediately on connect."""
-        nonce = uuid.uuid4().hex[:16]
-        ts = int(time.time() * 1000)
-        challenge = {
-            "type": "event",
-            "event": "connect.challenge",
-            "payload": {"nonce": nonce, "ts": ts},
-        }
-        await ws.send(json.dumps(challenge))
+    # ── token ──
+    async def _load_token(self):
+        if TOKEN_FILE.exists():
+            d = json.loads(TOKEN_FILE.read_text())
+            self._token = d.get("bot_token","")
+            self._bot_id = d.get("ilink_bot_id","")
+            self._buf = d.get("updates_buf","")
 
-    async def _handle_frame(self, ws, frame: dict):
-        ftype = frame.get("type", "")
-        mid = frame.get("id", "")
+    def _save_token(self):
+        TOKEN_FILE.write_text(json.dumps(dict(
+            bot_token=self._token, ilink_bot_id=self._bot_id,
+            updates_buf=self._buf, login_time=time.time())))
 
-        if ftype == "req":
-            method = frame.get("method", "")
-            params = frame.get("params", {})
+    # ── auth ──
+    async def _qr_login(self):
+        r = await self._session.get(f"{API_BASE}/ilink/bot/get_bot_qrcode?bot_type=3")
+        qr = r.json()["qrcode"]
+        url = r.json().get("qrcode_img_content","")
+        print(f"[WeChat] QR: {url}")
+        while True:
+            await asyncio.sleep(2)
+            s = (await self._session.get(f"{API_BASE}/ilink/bot/get_qrcode_status?qrcode={qr}")).json()
+            if s.get("status") == "confirmed":
+                self._token = s["bot_token"]; self._bot_id = s.get("ilink_bot_id",""); self._save_token()
+                print(f"[WeChat] Logged in: {self._bot_id}"); return
+            if s.get("status") == "expired": raise RuntimeError("QR expired")
 
-            if method == "connect":
-                await self._handle_connect(ws, mid, params)
-            elif method == "health":
-                await self._send_res(ws, mid, True, {"status": "ok", "connId": self._conn_id})
-            elif method == "agent":
-                await self._handle_agent(ws, mid, params)
-            elif method == "chat.send":
-                await self._handle_chat(ws, mid, params)
-            elif method == "config.get":
-                await self._send_res(ws, mid, True, {})
-            else:
-                await self._send_res(ws, mid, True, {"method": method, "handled": False})
+    # ── http ──
+    def _hdrs(self):
+        u = base64.b64encode(str(random.randint(1,2**31-1)).encode()).decode()
+        return {"Content-Type":"application/json","iLink-App-Id":"bot",
+                "iLink-App-ClientVersion":VER,"X-WECHAT-UIN":u,
+                "AuthorizationType":"ilink_bot_token",
+                "Authorization":f"Bearer {self._token}"}
 
-    async def _handle_connect(self, ws, mid: str, params: dict):
-        """Handle connect handshake."""
-        client_info = params.get("client", {})
-        print(f"[Gateway] Client connected: {client_info.get('id', '?')} v{client_info.get('version', '?')}")
+    async def _post(self, ep, body):
+        r = await self._session.post(f"{API_BASE}{ep}", headers=self._hdrs(), json=body)
+        if r.status_code != 200:
+            print(f"[WeChat] {ep} HTTP {r.status_code}: {r.text[:200]}")
+            return {}
+        return r.json()
 
-        hello = {
-            "type": "res", "id": mid, "ok": True,
-            "payload": {
-                "type": "hello-ok",
-                "protocol": PROTOCOL_VERSION,
-                "server": {"version": "infocap-0.4.0", "connId": self._conn_id},
-                "features": {
-                    "methods": ["connect", "health", "agent", "agent.wait", "chat.send", "config.get"],
-                    "events": ["tick", "agent", "presence"],
-                },
-                "policy": {
-                    "maxPayload": 26214400,
-                    "maxBufferedBytes": 52428800,
-                    "tickIntervalMs": 30000,
-                },
-            },
-        }
-        await ws.send(json.dumps(hello))
-
-    async def _handle_agent(self, ws, mid: str, params: dict):
-        """Handle agent request — the core method for WeChat messages."""
-        message = params.get("message") or params.get("text") or params.get("prompt", "")
-        session_key = params.get("sessionKey") or params.get("sessionId") or f"wechat_{uuid.uuid4().hex[:8]}"
-
-        if not message or not isinstance(message, str):
-            await self._send_res(ws, mid, False, error={"code": "INVALID_MESSAGE", "message": "Missing message"})
-            return
-
-        print(f"[Gateway] Agent request: session={session_key[:20]}... msg={message[:50]}...")
-
+    # ── polling ──
+    async def _get_updates(self):
+        body = {"get_updates_buf": self._buf, "base_info": {"channel_version": VER}}
         try:
-            # Send "thinking" tick
-            self._tick_count += 1
-            await ws.send(json.dumps({
-                "type": "event", "event": "tick",
-                "payload": {"status": "thinking", "sessionKey": session_key},
-                "seq": self._tick_count,
-            }))
-
-            # Run agent
-            result = await self._engine.run(message)
-
-            # Send response
-            await self._send_res(ws, mid, True, {
-                "type": "agent-response",
-                "text": result,
-                "sessionKey": session_key,
-                "finishReason": "stop",
-            })
-
-            # Send completion event
-            self._tick_count += 1
-            await ws.send(json.dumps({
-                "type": "event", "event": "agent",
-                "payload": {"status": "done", "sessionKey": session_key, "text": result[:200]},
-                "seq": self._tick_count,
-            }))
-
-        except Exception as e:
-            await self._send_res(ws, mid, False, error={"code": "AGENT_ERROR", "message": str(e)})
-
-    async def _handle_chat(self, ws, mid: str, params: dict):
-        """Handle chat.send — simpler message interface."""
-        text = params.get("text") or params.get("message", "")
-        session_key = params.get("sessionKey", f"chat_{uuid.uuid4().hex[:8]}")
-        if text:
-            result = await self._engine.run(text)
-            await self._send_res(ws, mid, True, {"text": result, "sessionKey": session_key})
+            d = await self._post("/ilink/bot/getupdates", body)
+        except Exception:
+            return []
+        if d.get("errcode") == -14:
+            self._buf = ""; self._save_token()
         else:
-            await self._send_res(ws, mid, False, error={"code": "EMPTY", "message": "No text"})
+            nb = d.get("get_updates_buf","")
+            if nb and nb != self._buf:
+                self._buf = nb; self._save_token()
+        return d.get("msgs",[])
 
-    async def _send_res(self, ws, mid: str, ok: bool, payload=None, error=None):
-        frame = {"type": "res", "id": mid, "ok": ok}
-        if ok:
-            frame["payload"] = payload or {}
-        else:
-            frame["error"] = error or {"code": "UNKNOWN", "message": "Unknown error"}
-        await ws.send(json.dumps(frame, default=str))
+    # ── send ──
+    async def _send_text(self, to_user, text, ctx=""):
+        body = {
+            "msg": {
+                "to_user_id": to_user, "message_type": MSG_BOT,
+                "message_state": 2, "context_token": ctx,
+                "item_list": [{"type": ITEM_TEXT, "text_item": {"text": text}}],
+            },
+            "base_info": {"channel_version": VER},
+        }
+        return await self._post("/ilink/bot/sendmessage", body)
+
+    # ── message handling ──
+    async def _on_message(self, msg):
+        if msg.get("message_type") != MSG_USER: return
+        mid = msg.get("message_id","")
+        if mid in self._seen: return
+        self._seen.add(mid)
+        if len(self._seen) > 2000: self._seen = set(list(self._seen)[-1000:])
+
+        text = "".join(it.get("text_item",{}).get("text","")
+                       for it in msg.get("item_list",[]) if it.get("type")==ITEM_TEXT)
+        if not text.strip(): return
+
+        uid = msg.get("from_user_id","")
+        ctx = msg.get("context_token","")
+        print(f"[WeChat] {uid[:15]}...: {text[:50]}")
+
+        # Run agent
+        result = await self._engine.run(text)
+        print(f"[WeChat] Reply {len(result)} chars")
+
+        # Send reply (split long messages)
+        for i in range(0, len(result), 2000):
+            chunk = result[i:i+2000]
+            d = await self._send_text(uid, chunk, ctx if i==0 else "")
+            if d.get("ret", 0) != 0:
+                print(f"[WeChat] Send err: {d}")

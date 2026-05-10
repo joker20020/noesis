@@ -91,7 +91,7 @@ class SubconsciousLoop:
                 print(f"  [ArchiveMiner] Recovered {len(patterns)} patterns: {patterns[:5]}")
 
         # Step 6: Autonomous exploration (every 6 ticks or idle trigger)
-        if self._dispatcher and (self._tick_count % 6 == 0 or trigger == "idle"):
+        if self._dispatcher and (self._tick_count % 120 == 0 or trigger == "idle"):
             from exploration.planner import ExplorationPlanner
             from exploration.executor import ExplorationExecutor
             from exploration.reflector import ExplorationReflector

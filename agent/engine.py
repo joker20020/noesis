@@ -79,4 +79,12 @@ class AgentEngine:
         self._subconscious.stop()
         if self._sub_task:
             self._sub_task.cancel()
+            try:
+                await self._sub_task
+            except asyncio.CancelledError:
+                pass
+        try:
+            await self._web_scan_tool.close()
+        except Exception:
+            pass
         await self.neo4j.close()

@@ -27,12 +27,12 @@ async def _start_adapters():
     cfg = _engine.config.platform
     tasks = []
 
-    # WeChat — OpenClaw Gateway v3
+    # WeChat — direct iLink API (GA-compatible)
     if cfg.wechat_enabled:
-        from adapters.wechat import GatewayProtocol
-        gw = GatewayProtocol(_engine, host=cfg.wechat_gateway_host, port=cfg.wechat_gateway_port)
-        tasks.append(asyncio.create_task(gw.start(), name="wechat"))
-        print(f"[Server] WeChat Gateway: ws://{cfg.wechat_gateway_host}:{cfg.wechat_gateway_port}")
+        from adapters.wechat import WeChatAdapter
+        wx = WeChatAdapter(_engine)
+        tasks.append(asyncio.create_task(wx.start(), name="wechat"))
+        print(f"[Server] WeChat: iLink API")
 
     # QQ — Tencent official botpy SDK
     if cfg.qq_enabled:
@@ -86,12 +86,27 @@ async def lifespan(app: FastAPI):
 
     yield
 
-    for task in _adapter_tasks:
+    # Graceful shutdown — cancel all tasks, close engine, clean event loop
+    all_tasks = [t for t in asyncio.all_tasks() if t is not asyncio.current_task()]
+    for task in all_tasks:
         task.cancel()
+    for task in all_tasks:
+        try:
+            await task
+        except (asyncio.CancelledError, Exception):
+            pass
     try:
         await _engine.close()
     except Exception:
         pass
+    # Let pending callbacks drain
+    await asyncio.sleep(0.3)
+    loop = asyncio.get_event_loop()
+    pending = asyncio.all_tasks(loop)
+    for task in pending:
+        task.cancel()
+    if pending:
+        await asyncio.wait(pending, timeout=2)
 
 
 app = FastAPI(title="infoCap", lifespan=lifespan)

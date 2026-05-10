@@ -19,6 +19,18 @@ dev = [
     "pytest>=8.2.0",
     "pytest-asyncio>=0.23.0",
 ]
+telegram = ["python-telegram-bot>=21.0"]
+discord = ["discord.py>=2.3.0"]
+qq = ["qq-botpy>=1.2.0"]
+feishu = ["lark-oapi>=1.3.0"]
+wechat = ["websockets>=12.0"]
+all-adapters = [
+    "python-telegram-bot>=21.0",
+    "discord.py>=2.3.0",
+    "qq-botpy>=1.2.0",
+    "lark-oapi>=1.3.0",
+    "websockets>=12.0",
+]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
