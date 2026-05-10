@@ -65,9 +65,9 @@ class SopCompiler:
         # Generate code via LLM
         try:
             resp = await self._llm.chat([
-                Message(role="user", content=COMPILE_PROMPT.format(sop_content=sop_content[:4000]))
+                Message.text_msg(role="user", text=COMPILE_PROMPT.format(sop_content=sop_content[:4000]))
             ])
-            code = resp.content or ""
+            code = ''.join([c.text if c.type == "text" and c.text else "" for c in resp.content])
         except Exception as e:
             return {"status": "skipped", "reason": f"LLM error: {e}"}
 

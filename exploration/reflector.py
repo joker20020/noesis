@@ -37,10 +37,11 @@ class ExplorationReflector:
             if self._llm:
                 try:
                     resp = await self._llm.chat([
-                        Message(role="user", content=EXPLORE_SKILL_PROMPT.format(
+                        Message.text_msg("user", EXPLORE_SKILL_PROMPT.format(
                             category=cat, result=result.get("result", "")[:2000]))
                     ])
-                    info = json.loads(resp.content or "{}")
+                    contents = ''.join([c.text if c.type == "text" and c.text else "" for c in resp.content])
+                    info = json.loads(contents or "{}")
                     name = info.get("name", name)
                     desc = info.get("description", f"Auto-explored: {result['result'][:200]}")
                     content = info.get("content", "")

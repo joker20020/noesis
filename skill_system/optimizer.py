@@ -43,12 +43,13 @@ class SopOptimizer:
         if self._llm:
             try:
                 resp = await self._llm.chat([
-                    Message(role="user", content=OPTIMIZE_PROMPT.format(
+                    Message.text_msg(role="user", text=OPTIMIZE_PROMPT.format(
                         sop_content=current_sop[:3000],
                         tool_sequence=" -> ".join(tool_names[-30:]),
                     ))
                 ])
-                data = json.loads(resp.content or "{}")
+                contents = ''.join([c.text if c.type == "text" and c.text else "" for c in resp.content])
+                data = json.loads(contents or "{}")
             except Exception:
                 data = {}
         else:

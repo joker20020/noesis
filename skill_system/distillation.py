@@ -135,12 +135,13 @@ class DistillationEngine:
         context = trace[:3000] if trace else summary
         try:
             resp = await self._llm.chat([
-                LLMMsg(role="user", content=(
+                LLMMsg.text_msg(role="user", text=(
                     "Extract skill info from this session trace. Output JSON: "
                     '{"name":"short-name","category":"web_automation|data_processing|system_ops|...","description":"one sentence"}\n'
                     f"Trace: {context}")
                 )])
-            info = json.loads(resp.content or "{}")
+            contents = ''.join([c.text if c.type == "text" and c.text else "" for c in resp.content])
+            info = json.loads(contents or "{}")
         except Exception:
             info = {}
         name = info.get("name", summary[:20].strip().lower().replace(" ", "-") or "auto-skill")
@@ -160,14 +161,15 @@ class DistillationEngine:
         summary = request.get("summary", "")
         try:
             resp = await self._llm.chat([
-                Message(role="user", content=SOP_PROMPT.format(
+                Message.text_msg(role="user", text=SOP_PROMPT.format(
                     skill_name=skill.get("name", "unknown"),
                     skill_id=skill.get("id", "unknown"),
                     stage="NL",
                     trace=trace[:3000] if trace else summary,
                     summary=summary))
             ])
-            sop_content = (resp.content or "").strip()
+            contents = ''.join([c.text if c.type == "text" and c.text else "" for c in resp.content])
+            sop_content = (contents or "").strip()
         except Exception as e:
             print(f"[Distillation] LLM error: {e}")
             return

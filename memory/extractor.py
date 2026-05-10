@@ -93,9 +93,10 @@ class EntityExtractor:
             return
         try:
             resp = await self._llm.chat([
-                Message(role="user", content=EXTRACT_PROMPT.format(trace=trace[:3000] if trace else summary, summary=summary))
+                Message.text_msg(role="user", text=EXTRACT_PROMPT.format(trace=trace[:3000] if trace else summary, summary=summary))
             ])
-            data = json.loads(resp.content or "{}")
+            datas = ''.join([c.text if c.type == "text" and c.text else "" for c in resp.content])
+            data = json.loads(datas or "{}")
             if data.get("entities"):
                 for ent in data["entities"]:
                     ent.setdefault("entity_type", entity_type)
