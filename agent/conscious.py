@@ -198,7 +198,7 @@ class ConsciousLoop:
                     display = "".join(b.text or b.thinking or "" for b in response.content)
                     await on_event({"type": "message", "content": display})
                 if not is_ephemeral and round_blocks:
-                    await self._create_step("infocap", "assistant", round_blocks)
+                    await self._create_step("noesis", "assistant", round_blocks)
 
             # Task complete
             if not response.tool_calls:
@@ -209,7 +209,7 @@ class ConsciousLoop:
                     elif b.type == "text":
                         round_blocks.append({"type": "text", "text": b.text or ""})
                 if not is_ephemeral and round_blocks:
-                    await self._create_step("infocap", "assistant", round_blocks)
+                    await self._create_step("noesis", "assistant", round_blocks)
                 display = "".join(b.text or "" for b in response.content if b.type == "text") or "Task completed."
                 if on_event:
                     await on_event({"type": "message", "content": display})
@@ -225,9 +225,9 @@ class ConsciousLoop:
                 result = await self._dispatcher.dispatch(DispatchToolCall(id=tc.id, name=tc.name, arguments=tc.arguments))
                 truncated = self._compression.stage1_tool_output(tc.name, result.output)
 
-                await self._create_step("infocap", "assistant", 
+                await self._create_step("noesis", "assistant", 
                                         [{"type": "tool_use", "id": tc.id, "name": tc.name, "input": tc.arguments}])
-                await self._create_step("infocap", "system", 
+                await self._create_step("noesis", "system", 
                                         [{"type": "tool_result", "tool_call_id": tc.id, "name": tc.name, "output": truncated}])
                 
 

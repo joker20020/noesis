@@ -152,7 +152,7 @@ async def test_graph_models():
     check("ImageBlock", ContentBlock(type="image", source=Base64Source(media_type="image/png")).source.media_type == "image/png")
     check("AudioBlock", ContentBlock(type="audio", source=URLSource(url="http://x")).source.url == "http://x")
 
-    step = ExecutionStep(id="m1", name="infocap", role="assistant",
+    step = ExecutionStep(id="m1", name="noesis", role="assistant",
         content=[ContentBlock(type="text", text="done")])
     check("ExecutionStep", step.id == "m1" and step.role == "assistant")
 

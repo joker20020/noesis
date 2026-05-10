@@ -19,11 +19,11 @@ def _parse_content(content):
 _engine: AgentEngine | None = None
 _adapter_tasks: list[asyncio.Task] = []
 
-FIXED_SESSION = "infocap"
+FIXED_SESSION = "noesis"
 
 
 async def _start_adapters():
-    """Start platform adapters based on config. All share session 'infocap'."""
+    """Start platform adapters based on config. All share session 'noesis'."""
     cfg = _engine.config.platform
     tasks = []
 
@@ -99,7 +99,7 @@ async def lifespan(app: FastAPI):
         pass
 
 
-app = FastAPI(title="infoCap", lifespan=lifespan)
+app = FastAPI(title="Noesis", lifespan=lifespan)
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
 
 

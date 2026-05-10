@@ -60,7 +60,7 @@ Key Info: {key_info}
 
 
 class ContextBuilder:
-    def __init__(self, dispatcher: ToolDispatcher, agent_name: str = "infoCap"):
+    def __init__(self, dispatcher: ToolDispatcher, agent_name: str = "Noesis"):
         self._dispatcher = dispatcher
         self._agent_name = agent_name
         self._tool_descriptions = self._build_tool_descriptions()

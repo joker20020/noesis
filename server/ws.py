@@ -2,7 +2,7 @@
 import json
 from fastapi import WebSocket, WebSocketDisconnect
 
-FIXED_SESSION = "infocap"
+FIXED_SESSION = "noesis"
 
 
 class ChatHandler:

@@ -41,7 +41,7 @@ class TelegramAdapter:
                 await update.message.reply_text(result[i:i+4000])
 
         async def cmd_start(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
-            await update.message.reply_text("infoCap ready. Commands: /new (reset), /stop (abort).")
+            await update.message.reply_text("Noesis ready. Commands: /new (reset), /stop (abort).")
 
         async def cmd_new(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
             self._engine.abort()

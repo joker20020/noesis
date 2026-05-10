@@ -8,30 +8,22 @@
 
 </div>
 
-# infoCap
+# Noesis
 
-> A self-evolving Agent with graph-native memory. Capabilities grow with use — from natural language to SOPs to executable code.
+> A self-evolving Agent with graph-native memory. It learns from every interaction, distills experience into reusable workflows, and autonomously expands its knowledge graph.
 
-**infoCap** is a generic AI agent platform featuring **6-layer graph memory** (Neo4j), **conscious/subconscious dual-loop** architecture, **multi-platform connectivity** (WeChat, QQ, Telegram, Discord, Feishu + Web UI), and **autonomous skill self-evolution**. It learns from every interaction, distills experience into reusable workflows, and continuously expands its knowledge graph.
-
-Inspired by [GenericAgent](https://github.com/lsdefine/GenericAgent) — inheriting its minimal atomic toolset, layered memory, and three-stage evolution design — then significantly enhanced with graph-native storage, multi-platform chat, and autonomous exploration.
-
-<video src="https://github.com/user-attachments/assets/demo.mp4" width="800"></video>
+Inspired by [GenericAgent](https://github.com/lsdefine/GenericAgent), Noesis inherits the minimal atomic toolset, layered memory architecture, and three-stage skill evolution — then extends them with Neo4j graph-native storage, conscious/subconscious dual-loop processing, multi-platform connectivity, and autonomous exploration.
 
 ---
 
-## Why infoCap?
+## Highlights
 
-| | GenericAgent | infoCap |
-|---|-------------|---------|
-| **Memory** | Filesystem-only (Markdown) | Neo4j Graph DB + Filesystem |
-| **Memory layers** | 4 layers | 6 layers + 3 cross-cutting mechanisms |
-| **Knowledge graph** | None | Open-world Entity graph with dynamic relationships |
-| **Skill evolution** | NL → SOP → Code | NL → SOP → Optimize → Code + variant detection |
-| **Belief revision** | None | Confidence + provenance + contradiction resolution |
-| **Multi-platform** | Experimental adapters | 6 platforms unified + single session |
-| **UI** | None | Web UI with markdown, skill management, memory visualization |
-| **Autonomous exploration** | — | Curriculum planning via 4D scoring |
+- **Graph-Native Memory** — 6-layer Neo4j graph stores execution traces, skills, entities, SOPs, and meta-patterns with rich relationships
+- **Self-Evolving Skills** — NL → SOP → Code three-stage evolution: agent learns from experience, distills workflows, compiles to executable scripts
+- **Conscious/Subconscious Dual Loop** — Real-time ReAct reasoning handles user tasks; background loop handles distillation, extraction, and autonomous exploration
+- **Open-World Knowledge Graph** — L2 entities with dynamic types, confidence tracking, belief revision, and automatic extraction from conversations
+- **Multi-Platform** — Web UI + WeChat + QQ + Telegram + Discord + Feishu, all sharing one session
+- **AgentScope-Compatible Messages** — ContentBlock-based unified message model with per-provider converters (OpenAI, DeepSeek)
 
 ---
 
@@ -39,10 +31,10 @@ Inspired by [GenericAgent](https://github.com/lsdefine/GenericAgent) — inherit
 
 ```
 ┌──────────────────────────────────────────────────────┐
-│                  infoCap Agent Platform               │
+│                  Noesis Agent Platform                │
 ├───────────────────┬──────────────────────────────────┤
 │  Conscious Loop   │  Subconscious Loop               │
-│  (Real-time)      │  (Background)                    │
+│  (ReAct Pattern)  │  (Background, triggered by idle) │
 │                   │                                  │
 │  User Input →     │  Experience Distillation         │
 │  L1 Route →       │  NL → SOP → Code Evolution      │
@@ -80,14 +72,14 @@ Natural Language  →  Structured SOP   →  Executable Code
 Token cost: 100%  →  ~30%             →  ~10%
 ```
 
-### 14 Atomic Tools
+### 15 Atomic Tools
 
 | Category | Tools |
 |----------|-------|
 | **File** | `file_read` · `file_patch` · `file_write` |
 | **Code** | `code_run` (Python/Bash/PowerShell) |
 | **Web** | `web_scan` · `web_execute_js` · `web_scraper` |
-| **Memory** | `memory_search` (6 modes: route/rag/sop/pattern/load/trace) · `update_working_checkpoint` · `start_long_term_update` |
+| **Memory** | `memory_search` (6 modes) · `update_working_checkpoint` · `start_long_term_update` |
 | **Skill** | `skill_manage` · `entity_manage` · `meta_pattern` |
 | **Agent** | `subagent` · `ask_user` |
 
@@ -104,8 +96,8 @@ Token cost: 100%  →  ~30%             →  ~10%
 ### 1. Clone & Install
 
 ```bash
-git clone https://github.com/yourname/infocap.git
-cd infocap
+git clone https://github.com/yourname/noesis.git
+cd noesis
 cp .env.example .env    # Edit with your API keys
 uv sync
 ```
@@ -116,7 +108,7 @@ uv sync
 docker compose up -d neo4j
 ```
 
-### 3. Start infoCap
+### 3. Start Noesis
 
 ```bash
 # Backend (port 8000)
@@ -130,7 +122,6 @@ cd webui && npm install && npm run dev
 
 - **Web UI**: http://localhost:3000
 - **API Docs**: http://localhost:8000/docs
-- **Health**: http://localhost:8000/api/health
 
 ---
 
@@ -140,32 +131,11 @@ All adapters share a single session — switch between platforms seamlessly.
 
 ```bash
 # .env configuration
-INFOCAP_PLATFORM_WECHAT_ENABLED=true    # WeChat (iLink API, QR login)
-INFOCAP_PLATFORM_QQ_ENABLED=true        # QQ (botpy SDK)
-INFOCAP_PLATFORM_TELEGRAM_ENABLED=true  # Telegram (bot token)
-INFOCAP_PLATFORM_DISCORD_ENABLED=true   # Discord (bot token)
-INFOCAP_PLATFORM_FEISHU_ENABLED=true    # Feishu/Lark (app credentials)
-```
-
-Common commands across all platforms: `/restart` (clear history), `/stop` (abort).
-
----
-
-## Project Structure
-
-```
-infoCap/
-├── agent/             # Core engine (conscious, subconscious, context, compression)
-├── llm/               # LLM clients (OpenAI, DeepSeek) + provider converters
-├── tools/             # 14 atomic tools
-├── memory/            # Neo4j graph models, entities, index, lifecycle, belief
-├── skill_system/      # Skill registry, distillation, optimizer, compiler, scorer
-├── exploration/       # Autonomous exploration (planner, executor, reflector)
-├── adapters/          # Platform adapters (wechat, qq, telegram, discord, feishu)
-├── server/            # FastAPI + WebSocket
-├── webui/             # Next.js frontend
-├── skills/            # Runtime-generated skill directories
-└── docs/              # Design specs, plans, agent guide
+NOESIS_PLATFORM_WECHAT_ENABLED=true    # WeChat (iLink API, QR login)
+NOESIS_PLATFORM_QQ_ENABLED=true        # QQ (botpy SDK)
+NOESIS_PLATFORM_TELEGRAM_ENABLED=true  # Telegram (bot token)
+NOESIS_PLATFORM_DISCORD_ENABLED=true   # Discord (bot token)
+NOESIS_PLATFORM_FEISHU_ENABLED=true    # Feishu/Lark (app credentials)
 ```
 
 ---
@@ -173,7 +143,7 @@ infoCap/
 ## Evolution in Action
 
 ```
-User: "帮我查一下最近的 GitHub PR 动态"
+User: "Research recent GitHub PR activity"
   │
 Round 1: Agent explores with natural language
          → 32 LLM calls, 222K tokens
@@ -195,7 +165,6 @@ Round 3: Code compiled from SOP
 
 - [GenericAgent](https://github.com/lsdefine/GenericAgent) — Minimal atomic toolset + 4-layer memory + 3-stage evolution
 - [AgentScope](https://github.com/agentscope-ai/agentscope) — Message model with ContentBlock design
-- [OpenClaw](https://docs.openclaw.ai) — Gateway protocol and multi-channel adapter pattern
 
 ## License
 

@@ -194,7 +194,7 @@ async def test_6_graph_models():
     aud = ContentBlock(type="audio", source=URLSource(url="https://x.com/a.mp3"))
     check("AudioBlock url", aud.source.url == "https://x.com/a.mp3", "")
 
-    step = ExecutionStep(id="msg_001", name="infocap", role="assistant",
+    step = ExecutionStep(id="msg_001", name="noesis", role="assistant",
         content=[ContentBlock(type="text", text="Done.")])
     check("ExecutionStep", step.id == "msg_001" and step.role == "assistant", "")
 
@@ -335,7 +335,7 @@ async def test_10_tool_registry():
 async def main():
     global PASS, FAIL
     print("=" * 50)
-    print("  infoCap Phase 1 Integration Tests")
+    print("  Noesis Phase 1 Integration Tests")
     print("=" * 50)
 
     await test_1_file_tools()

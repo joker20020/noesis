@@ -19,7 +19,7 @@ from tools.subagent import SubagentTool
 from agent.conscious import ConsciousLoop
 from agent.subconscious import SubconsciousLoop
 
-FIXED_SESSION = "infocap"
+FIXED_SESSION = "noesis"
 
 
 class AgentEngine:

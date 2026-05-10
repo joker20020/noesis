@@ -241,7 +241,7 @@ async def verify_tool_registry(engine):
 async def main():
     global PASS, FAIL
     print("=" * 50)
-    print("  infoCap All-Phase Verification")
+    print("  Noesis All-Phase Verification")
     print("=" * 50)
 
     # Phase 1 (no engine needed)

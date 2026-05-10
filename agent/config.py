@@ -3,7 +3,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 class LLMConfig(BaseSettings):
     model_config = SettingsConfigDict(
-        env_prefix="INFOCAP_LLM_", env_file=".env", extra="ignore",
+        env_prefix="NOESIS_LLM_", env_file=".env", extra="ignore",
     )
     provider: str = "openai"
     model: str = "gpt-4o"
@@ -15,17 +15,17 @@ class LLMConfig(BaseSettings):
 
 class Neo4jConfig(BaseSettings):
     model_config = SettingsConfigDict(
-        env_prefix="INFOCAP_NEO4J_", env_file=".env", extra="ignore",
+        env_prefix="NOESIS_NEO4J_", env_file=".env", extra="ignore",
     )
     uri: str = "bolt://localhost:7687"
     user: str = "neo4j"
-    password: str = "infocap123"
+    password: str = "noesis123"
 
 
 class PlatformConfig(BaseSettings):
     """Per-platform enable/disable + credentials. All from .env."""
     model_config = SettingsConfigDict(
-        env_prefix="INFOCAP_PLATFORM_", env_file=".env", extra="ignore",
+        env_prefix="NOESIS_PLATFORM_", env_file=".env", extra="ignore",
     )
     # Web UI (always on via uvicorn)
     web_enabled: bool = True
@@ -52,7 +52,7 @@ class PlatformConfig(BaseSettings):
 
 class Config(BaseSettings):
     model_config = SettingsConfigDict(
-        env_prefix="INFOCAP_", env_file=".env", extra="ignore",
+        env_prefix="NOESIS_", env_file=".env", extra="ignore",
     )
     llm: LLMConfig = LLMConfig()
     neo4j: Neo4jConfig = Neo4jConfig()
