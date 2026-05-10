@@ -41,6 +41,10 @@ class ChatHandler:
             while True:
                 msg = await ws.receive_text()
                 data = json.loads(msg)
+                if data.get("__abort"):
+                    self._engine.abort()
+                    await ws.send_text(json.dumps({"type": "message", "content": "[Interrupted]"}))
+                    continue
                 user_input = data.get("content", "")
                 if not user_input.strip():
                     continue

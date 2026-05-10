@@ -66,10 +66,14 @@ class AgentEngine:
         await self.neo4j.init_schema()
         self._sub_task = asyncio.create_task(self._subconscious.start())
 
-    async def run(self, user_input: str, 
+    async def run(self, user_input: str,
                   on_event=None) -> str:
         self._subconscious.touch()
         return await self._loop.run(user_input, on_event=on_event)
+
+    def abort(self):
+        """Send interrupt signal to stop current agent response."""
+        self._loop.abort()
 
     async def close(self):
         self._subconscious.stop()

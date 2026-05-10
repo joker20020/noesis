@@ -41,6 +41,10 @@ class ConsciousLoop:
         self._last_20_summaries: list[str] = []
         self._history_summary = ""
         self._l1_skills = "(no skills registered yet)"
+        self._aborted = False
+
+    def abort(self):
+        self._aborted = True
 
     async def run(self, user_input: str, max_rounds: int = 30, history: list[dict] | None = None,
                   on_event=None) -> str:
@@ -95,7 +99,11 @@ class ConsciousLoop:
             if self._compression._char_count(raw) > self._compression.budget:
                 self._history = [Message(**m) for m in self._compression.stage3_evict(raw)]
 
+        self._aborted = False
         for round_idx in range(max_rounds):
+            if self._aborted:
+                self._history.append(Message(role="assistant", content="[Interrupted]"))
+                return "[Interrupted]"
             self._turn_count += 1
 
             # Stage 2: compress old tags every 5 rounds
@@ -159,6 +167,8 @@ class ConsciousLoop:
                 return final
 
             for tc in response.tool_calls:
+                if self._aborted:
+                    return "[Interrupted]"
                 result = await self._dispatcher.dispatch(
                     DispatchToolCall(id=tc.id, name=tc.name, arguments=tc.arguments)
                 )

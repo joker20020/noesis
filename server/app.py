@@ -231,6 +231,12 @@ async def delete_skill(skill_id: str):
     return {"status": "deleted"}
 
 
+@app.post("/api/abort")
+async def abort():
+    _engine.abort()
+    return {"status": "aborted"}
+
+
 @app.delete("/api/session")
 async def clear_session():
     await _engine.neo4j.run(
