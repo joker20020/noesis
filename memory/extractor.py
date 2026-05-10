@@ -1,4 +1,4 @@
-"""LLM-powered L2 Entity extraction — one request at a time with trace context."""
+"""LLM-powered L2 Entity extraction — one request at a time with trace context + dedup."""
 import json
 from memory.neo4j_client import Neo4jClient
 from llm.base import LlmClient, Message
@@ -23,7 +23,6 @@ class EntityExtractor:
         self._llm = llm
 
     async def extract_recent(self):
-        """Process ALL pending subgoal_completed/fault_recovery requests, oldest first."""
         while True:
             records = await self._neo4j.run(
                 """MATCH (d:DistillationRequest {status: 'pending'})
@@ -32,7 +31,6 @@ class EntityExtractor:
             )
             if not records:
                 break
-
             d = records[0]["d"]
             sid = d.get("session_id", "")
             reason = d.get("reason", "")
@@ -73,13 +71,8 @@ class EntityExtractor:
                    MATCH (first)-[:NEXT*0..]->(step:ExecutionStep)"""
         params: dict = {"sid": session_id}
         if since:
-            query += " WHERE step.timestamp >= $since"
-            params["since"] = since
-        if current_ts:
-            query += " AND step.timestamp <= $until"
-            params["until"] = current_ts
+            query += " WHERE step.timestamp >= $since"; params["since"] = since
         query += " RETURN step.content AS content ORDER BY step.step_index LIMIT 30"
-
         records = await self._neo4j.run(query, params)
         lines = []
         for r in records:
@@ -98,11 +91,9 @@ class EntityExtractor:
     async def _extract(self, session_id: str, summary: str, trace: str, entity_type: str):
         if not trace and len(summary) < 20:
             return
-
         try:
             resp = await self._llm.chat([
-                Message(role="user", content=EXTRACT_PROMPT.format(
-                    trace=trace[:3000] if trace else summary, summary=summary))
+                Message(role="user", content=EXTRACT_PROMPT.format(trace=trace[:3000] if trace else summary, summary=summary))
             ])
             data = json.loads(resp.content or "{}")
             if data.get("entities"):
@@ -111,15 +102,40 @@ class EntityExtractor:
         except Exception as e:
             print(f"[Extractor] LLM error: {e}")
             return
-
         for ent in data.get("entities", []):
-            await self._create_entity(ent, session_id)
+            await self._upsert_entity(ent, session_id)
         for rel in data.get("relations", []):
             await self._create_relation(rel)
 
-    async def _create_entity(self, ent: dict, session_id: str):
+    async def _upsert_entity(self, ent: dict, session_id: str):
+        """Create or update — check for duplicates by name+type before creating."""
         eid = ent.get("entity_id", f"ent_{abs(hash(ent.get('name',''))) % 1000000:06d}")
+        name = ent.get("name", eid)
+        etype = ent.get("entity_type", "Fact")
         props = json.dumps(ent.get("properties", {}), ensure_ascii=False)
+        content = ent.get("content", "")
+
+        # Check for existing entity with same name+type
+        existing = await self._neo4j.run(
+            """MATCH (e:Entity {name: $name, entity_type: $type})
+               WHERE e.entity_id <> $eid
+               RETURN e.entity_id AS eid, coalesce(e.confidence, 0.7) AS c LIMIT 1""",
+            {"name": name, "type": etype, "eid": eid})
+        if existing:
+            old_id = existing[0]["eid"]
+            new_conf = min(1.0, existing[0]["c"] + 0.05)
+            await self._neo4j.run(
+                """MATCH (e:Entity {entity_id: $oid})
+                   SET e.content = $content, e.properties = $props,
+                       e.confidence = $conf,
+                       e.source_trace = coalesce(e.source_trace, []) + [$trace],
+                       e.activation = coalesce(e.activation, 1.0) + 0.1,
+                       e.updated_at = datetime()""",
+                {"oid": old_id, "content": content, "props": props,
+                 "conf": new_conf, "trace": session_id})
+            print(f"[Extractor] Merged: {old_id} (conf {existing[0]['c']:.2f}→{new_conf:.2f})")
+            return
+
         await self._neo4j.run(
             """MERGE (e:Entity {entity_id: $eid})
                ON CREATE SET e.entity_type = $type, e.name = $name,
@@ -127,8 +143,7 @@ class EntityExtractor:
                   e.confidence = 0.7, e.source = 'llm_extracted',
                   e.source_trace = [$trace], e.activation = 1.0,
                   e.created_at = datetime()""",
-            {"eid": eid, "type": ent.get("entity_type", "Fact"),
-             "name": ent.get("name", eid), "content": ent.get("content", ""),
+            {"eid": eid, "type": etype, "name": name, "content": content,
              "props": props, "trace": session_id},
         )
 
@@ -137,7 +152,6 @@ class EntityExtractor:
             await self._neo4j.run(
                 f"MATCH (a:Entity {{entity_id: $from}}), (b:Entity {{entity_id: $to}})"
                 f" MERGE (a)-[:{rel['type']}]->(b)",
-                {"from": rel["from"], "to": rel["to"]},
-            )
+                {"from": rel["from"], "to": rel["to"]})
         except Exception:
             pass

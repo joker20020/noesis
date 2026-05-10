@@ -1,27 +1,29 @@
-"""Discord Bot adapter — discord.py, prefix '!'. """
+"""Discord Bot adapter — discord.py gateway, prefix commands."""
 import asyncio
 
 try:
     import discord
+    from discord.ext import commands
     HAS_DC = True
 except ImportError:
     HAS_DC = False
 
 
 class DiscordAdapter:
-    def __init__(self, engine, token: str = "", channel_ids: list[int] | None = None):
+    """GA pattern: gateway connection with command dispatch. Messages with prefix trigger agent."""
+
+    def __init__(self, engine, token: str = "", channel_ids: str = ""):
         self._engine = engine
         self._token = token
-        self._channel_ids = channel_ids or []
+        self._channel_ids = {int(c.strip()) for c in channel_ids.split(",") if c.strip()} if channel_ids else set()
         self._client = None
+        self._prefix = "!"
 
     async def start(self):
         if not HAS_DC:
-            print("[Discord] discord.py not installed: pip install discord.py")
-            return
+            raise RuntimeError("pip install discord.py")
         if not self._token:
-            print("[Discord] Token not configured, skipping")
-            return
+            raise RuntimeError("Discord token not configured")
 
         intents = discord.Intents.default()
         intents.message_content = True
@@ -37,13 +39,25 @@ class DiscordAdapter:
                 return
             if self._channel_ids and message.channel.id not in self._channel_ids:
                 return
-            if not message.content.startswith("!"):
+            if not message.content.startswith(self._prefix):
                 return
-            prompt = message.content[1:].strip()
-            if not prompt:
+
+            text = message.content[len(self._prefix):].strip()
+            if not text:
                 return
+
+            # Command dispatch
+            if text.startswith("new"):
+                self._engine.abort()
+                await message.reply("Session reset.")
+                return
+            if text.startswith("stop"):
+                self._engine.abort()
+                await message.reply("Stopped.")
+                return
+
             async with message.channel.typing():
-                result = await self._engine.run(prompt, session_id=f"dc_{message.author.id}")
+                result = await self._engine.run(text, session_id=f"dc_{message.author.id}")
                 for i in range(0, len(result), 1900):
                     await message.reply(result[i:i+1900])
 

@@ -1,138 +1,93 @@
-"""QQ Bot adapter via NapCatQQ (OneBot v11 protocol, reverse WebSocket).
-
-Setup:
-1. Install NapCatQQ: https://github.com/NapNeko/NapCatQQ
-2. Configure NapCat WebUI → Network → New → WebSocket Client
-   URL: ws://127.0.0.1:8080/onebot/v11/ws
-   Message Format: Array
-3. Start infoCap — it listens on ws://0.0.0.0:8080/onebot/v11/ws
-4. Send QQ messages — infoCap auto-replies
-
-Architecture:
-  QQ → NapCatQQ → reverse WS → infoCap qq adapter → Agent Engine → OneBot API reply
-"""
+"""QQ Bot adapter — Tencent official botpy SDK. GA-compatible approach."""
 import asyncio
-import json
 import time
-from urllib.parse import urlparse
-import httpx
+from collections import deque
+
 try:
-    import websockets
-    HAS_WS = True
+    import botpy
+    from botpy.message import C2CMessage, GroupMessage
+    HAS_BOTPY = True
 except ImportError:
-    HAS_WS = False
+    HAS_BOTPY = False
 
 
 class QQAdapter:
-    def __init__(self, engine, host: str = "0.0.0.0", port: int = 8080,
-                 napcat_http: str = "http://127.0.0.1:3000"):
+    """GA pattern: official QQ Bot SDK. Requires app_id + app_secret from QQ Open Platform."""
+
+    def __init__(self, engine, app_id: str = "", app_secret: str = "", allowed_users: str = ""):
         self._engine = engine
-        self._host = host
-        self._port = port
-        self._napcat_http = napcat_http
-        self._running = False
-        self._msg_counter = 0
+        self._app_id = app_id
+        self._app_secret = app_secret
+        self._allowed = {u.strip() for u in allowed_users.split(",") if u.strip()} if allowed_users else set()
+        self._client = None
+        self._seen = deque(maxlen=500)
+        self._msg_seq = 0
 
     async def start(self):
-        if not HAS_WS:
-            print("[QQ] websockets not installed: pip install websockets")
-            return
+        if not HAS_BOTPY:
+            raise RuntimeError("pip install qq-botpy")
+        if not self._app_id or not self._app_secret:
+            raise RuntimeError("QQ app_id and app_secret required")
 
-        self._running = True
-        path = "/onebot/v11/ws"
-        print(f"[QQ] Listening on ws://{self._host}:{self._port}{path}")
-        print(f"[QQ] NapCat HTTP API: {self._napcat_http}")
-        print(f"[QQ] Configure NapCat WebUI → WebSocket Client → ws://127.0.0.1:{self._port}{path}")
-
-        async def handle(websocket):
-            async for raw in websocket:
-                try:
-                    data = json.loads(raw)
-                    await self._handle_event(websocket, data)
-                except Exception as e:
-                    print(f"[QQ] Event error: {e}")
-
-        async with websockets.serve(handle, self._host, self._port) as server:
-            await server.wait_closed()
+        self._client = _QQClient(self._engine, self._allowed, self._seen, self)
+        print(f"[QQ] Starting botpy client (allowed: {len(self._allowed)} users)")
+        backoff = 5
+        while True:
+            try:
+                start = time.time()
+                await self._client.start(appid=self._app_id, secret=self._app_secret)
+            except Exception as e:
+                elapsed = time.time() - start
+                print(f"[QQ] Disconnected after {elapsed:.0f}s: {e}")
+            backoff = min(backoff * 2, 300) if elapsed < 60 else 5
+            print(f"[QQ] Reconnecting in {backoff}s...")
+            await asyncio.sleep(backoff)
 
     async def stop(self):
-        self._running = False
+        pass
 
-    async def _handle_event(self, ws, data: dict):
-        """Handle OneBot v11 event."""
-        post_type = data.get("post_type", "")
-        if post_type == "message":
-            await self._handle_message(ws, data)
-        elif post_type == "meta_event":
-            if data.get("meta_event_type") == "lifecycle":
-                print(f"[QQ] NapCat connected: {data.get('sub_type')}")
+    def next_seq(self) -> int:
+        self._msg_seq += 1
+        return self._msg_seq
 
-    async def _handle_message(self, ws, data: dict):
-        """Handle incoming QQ message."""
-        msg_type = data.get("message_type", "private")
-        user_id = str(data.get("user_id", "unknown"))
-        raw_msg = data.get("raw_message", data.get("message", ""))
-        message_id = data.get("message_id", 0)
 
-        if isinstance(raw_msg, list):
-            # CQ code array format
-            texts = []
-            for seg in raw_msg:
-                if seg.get("type") == "text":
-                    texts.append(seg.get("data", {}).get("text", ""))
-            raw_msg = "".join(texts)
+class _QQClient(botpy.Client):
+    def __init__(self, engine, allowed, seen, adapter):
+        intents = botpy.Intents(public_messages=True, direct_message=True)
+        super().__init__(intents=intents)
+        self._engine = engine
+        self._allowed = allowed
+        self._seen = seen
+        self._adapter = adapter
 
-        if not isinstance(raw_msg, str) or not raw_msg.strip():
+    async def on_c2c_message_create(self, message: C2CMessage):
+        await self._handle(message, is_group=False)
+
+    async def on_group_at_message_create(self, message: GroupMessage):
+        await self._handle(message, is_group=True)
+
+    async def _handle(self, message, is_group: bool):
+        msg_id = message.id
+        if msg_id in self._seen:
+            return
+        self._seen.append(msg_id)
+
+        user_id = getattr(message, 'member_openid', None) if is_group else getattr(message, 'user_openid', None)
+        user_id = user_id or getattr(message, 'author', {}).get('id', 'unknown')
+        if self._allowed and str(user_id) not in self._allowed:
             return
 
-        self._msg_counter += 1
-        print(f"[QQ #{self._msg_counter}] {msg_type} from {user_id}: {raw_msg[:50]}")
+        content = getattr(message, 'content', '') or ''
+        if not content.strip():
+            return
 
-        session_id = f"qq_{user_id}"
-        if msg_type == "group":
-            group_id = data.get("group_id", "")
-            session_id = f"qq_group_{group_id}_{user_id}"
-
-        try:
-            result = await self._engine.run(raw_msg, session_id=session_id)
-        except Exception as e:
-            result = f"Error: {e}"
-
-        # Split long responses
-        for chunk in [result[i:i+1500] for i in range(0, len(result), 1500)]:
-            await self._send_reply(ws, data, chunk)
-            await asyncio.sleep(0.3)  # Rate limit
-
-    async def _send_reply(self, ws, original: dict, content: str):
-        """Send reply via OneBot API."""
-        msg_type = original.get("message_type", "private")
-        reply = {
-            "action": "send_private_msg" if msg_type == "private" else "send_group_msg",
-            "params": {
-                "message": [{"type": "text", "data": {"text": content}}],
-            },
-            "echo": f"infocap_{int(time.time())}",
-        }
-        if msg_type == "private":
-            reply["params"]["user_id"] = original.get("user_id")
-        else:
-            reply["params"]["group_id"] = original.get("group_id")
-
-        await ws.send(json.dumps(reply, ensure_ascii=False))
-
-    async def send_direct(self, user_id: int, content: str, is_group: bool = False,
-                          group_id: int | None = None):
-        """Direct HTTP API call (alternative to WS reply)."""
-        action = "send_group_msg" if is_group else "send_private_msg"
-        params = {"message": [{"type": "text", "data": {"text": content}}]}
-        if is_group and group_id:
-            params["group_id"] = group_id
-        else:
-            params["user_id"] = user_id
-
-        async with httpx.AsyncClient(timeout=30) as client:
-            resp = await client.post(
-                f"{self._napcat_http}/{action}",
-                json=params,
-            )
-            return resp.json()
+        result = await self._engine.run(content, session_id=f"qq_{user_id}")
+        seq = self._adapter.next_seq()
+        for i in range(0, len(result), 1500):
+            chunk = result[i:i+1500]
+            if is_group:
+                await self.api.post_group_message(group_openid=message.group_openid,
+                    content=chunk, msg_id=msg_id, msg_seq=seq)
+            else:
+                await self.api.post_c2c_message(openid=user_id,
+                    content=chunk, msg_id=msg_id, msg_seq=seq)

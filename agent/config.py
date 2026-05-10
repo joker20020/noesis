@@ -33,19 +33,23 @@ class PlatformConfig(BaseSettings):
     wechat_enabled: bool = False
     wechat_gateway_host: str = "127.0.0.1"
     wechat_gateway_port: int = 18789
-    # QQ — NapCatQQ OneBot v11 reverse WebSocket
+    # QQ — Tencent official botpy SDK
     qq_enabled: bool = False
-    qq_host: str = "0.0.0.0"
-    qq_port: int = 8080
-    qq_napcat_http: str = "http://127.0.0.1:3000"
+    qq_app_id: str = ""
+    qq_app_secret: str = ""
+    qq_allowed_users: str = ""
     # Telegram
     telegram_enabled: bool = False
     telegram_token: str = ""
     telegram_allowed_users: str = ""  # comma-separated user IDs
-    # Discord
+    # Discord — discord.py
     discord_enabled: bool = False
     discord_token: str = ""
     discord_channels: str = ""  # comma-separated channel IDs
+    # Feishu — lark-oapi SDK
+    feishu_enabled: bool = False
+    feishu_app_id: str = ""
+    feishu_app_secret: str = ""
 
 
 class Config(BaseSettings):

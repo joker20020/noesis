@@ -34,12 +34,12 @@ async def _start_adapters():
         tasks.append(asyncio.create_task(gw.start(), name="wechat"))
         print(f"[Server] WeChat Gateway: ws://{cfg.wechat_gateway_host}:{cfg.wechat_gateway_port}")
 
-    # QQ — NapCatQQ reverse WebSocket
+    # QQ — Tencent official botpy SDK
     if cfg.qq_enabled:
         from adapters.qq import QQAdapter
-        qq = QQAdapter(_engine, host=cfg.qq_host, port=cfg.qq_port, napcat_http=cfg.qq_napcat_http)
+        qq = QQAdapter(_engine, app_id=cfg.qq_app_id, app_secret=cfg.qq_app_secret, allowed_users=cfg.qq_allowed_users)
         tasks.append(asyncio.create_task(qq.start(), name="qq"))
-        print(f"[Server] QQ: ws://{cfg.qq_host}:{cfg.qq_port}")
+        print(f"[Server] QQ: botpy SDK")
 
     # Telegram
     if cfg.telegram_enabled:
@@ -49,13 +49,20 @@ async def _start_adapters():
         tasks.append(asyncio.create_task(tg.start(), name="telegram"))
         print(f"[Server] Telegram: started (allowed: {len(allowed)} users)")
 
-    # Discord
+    # Discord — discord.py
     if cfg.discord_enabled:
         from adapters.discord import DiscordAdapter
-        channels = [int(c) for c in cfg.discord_channels.split(",") if c.strip()] if cfg.discord_channels else []
+        channels = cfg.discord_channels
         dc = DiscordAdapter(_engine, token=cfg.discord_token, channel_ids=channels)
         tasks.append(asyncio.create_task(dc.start(), name="discord"))
         print(f"[Server] Discord: started (channels: {channels or 'all'})")
+
+    # Feishu — lark-oapi SDK
+    if cfg.feishu_enabled:
+        from adapters.feishu import FeishuAdapter
+        fs = FeishuAdapter(_engine, app_id=cfg.feishu_app_id, app_secret=cfg.feishu_app_secret)
+        tasks.append(asyncio.create_task(fs.start(), name="feishu"))
+        print(f"[Server] Feishu: started")
 
     if not tasks:
         print("[Server] No platform adapters enabled (configure .env to enable)")

@@ -1,0 +1,44 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+build/
+.venv/
+venv/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Secrets & Config
+.env
+!.env.example
+
+# Neo4j
+neo4j_data/
+neo4j_logs/
+
+# Next.js
+webui/.next/
+webui/node_modules/
+webui/out/
+
+# Runtime
+workspace/
+skills/
+archives/
+*.log
+
+# Playwright
+playwright-report/
+test-results/
+
+.superpowers/
+.claude/
