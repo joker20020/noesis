@@ -1,0 +1,211 @@
+<h2>方案 B：事件溯源 Agent 系统 — 核心架构</h2>
+<p class="subtitle">一切皆为事件。状态是可推导的，历史是可回放的，进化是可追溯的。</p>
+
+<div class="section">
+  <h3>核心理念</h3>
+  <p>传统架构（含 GenericAgent）的 agent 是 <strong>状态驱动</strong> 的：文件内容改变、记忆写入、工具执行结果覆盖旧状态。一旦操作完成，<strong>为什么这么做、中间怎么想的、有没有其他选择</strong> 全部丢失。</p>
+  <p>事件溯源逆转这个逻辑：<strong>不存储最终状态，而是存储导致状态变化的事件序列</strong>。状态只是事件流的投影。</p>
+</div>
+
+<div class="section">
+  <h3>架构全景</h3>
+  <div class="mockup">
+    <div class="mockup-header">方案 B — 事件溯源 Agent 系统架构</div>
+    <div class="mockup-body">
+
+<pre style="font-size: 11px; line-height: 1.5; background: #0d1117; color: #c9d1d9; padding: 16px; border-radius: 6px; overflow-x: auto;">
+┌──────────────────────────────────────────────────────────────────────┐
+│                        Web UI (React SPA)                            │
+│  ┌─────────┐ ┌──────────┐ ┌────────────┐ ┌──────────┐ ┌──────────┐ │
+│  │ 对话面板 │ │ 情报图谱  │ │ 事件时间线  │ │ 回放控制 │ │ 技能管理 │ │
+│  └────┬────┘ └────┬─────┘ └─────┬──────┘ └────┬─────┘ └────┬─────┘ │
+│       └───────────┴─────────────┴─────────────┴───────────┴────────┘ │
+│                      REST API + WebSocket                            │
+└──────────────────────────────────┬───────────────────────────────────┘
+                                   │
+┌──────────────────────────────────┼───────────────────────────────────┐
+│                    Python Agent 引擎                                  │
+│                                                                       │
+│  ┌────────────────────────────────────────┐  ┌─────────────────────┐ │
+│  │         Write Side (命令端)             │  │  Read Side (查询端)  │ │
+│  │                                        │  │                     │ │
+│  │  ┌──────────┐    ┌──────────────────┐  │  │  ┌───────────────┐  │ │
+│  │  │ 认知循环  │───▶│  Event Store     │  │  │  │ 画像投影片    │  │ │
+│  │  │ (Agent    │    │ ┌──────────────┐ │  │  │  │ ─────────    │  │ │
+│  │  │  Loop)   │    │ │ TaskStarted  │ │  │  │  │ 从事件流重组  │  │ │
+│  │  └──────────┘    │ │ ToolCalled   │ │  │  │  │ 目标完整画像  │  │ │
+│  │       │          │ │ ToolResulted │ │  │  │  └───────────────┘  │ │
+│  │       ▼          │ │ ThoughtLog   │ │  │  │                     │ │
+│  │  ┌──────────┐    │ │ MemoryWrite  │ │  │  │  ┌───────────────┐  │ │
+│  │  │ 工具分发器│    │ │ SkillEvolved │ │  │  │  │ 审计/回放     │  │ │
+│  │  │ (9原子   │    │ │ ...          │ │──┼──┼─▶│ ─────────     │  │ │
+│  │  │  工具)   │    │ └──────────────┘ │  │  │  │ 时间线重放    │  │ │
+│  │  └──────────┘    └──────────────────┘  │  │  │ 决策路径追踪  │  │ │
+│  │       │                                │  │  └───────────────┘  │ │
+│  │       ▼                                │  │                     │ │
+│  │  ┌──────────┐    ┌──────────────────┐  │  │  ┌───────────────┐  │ │
+│  │  │ OSINT    │    │ 记忆投影引擎      │  │  │  │ 进化分析      │  │ │
+│  │  │ 插件集   │    │ ─────────────── │  │  │  │ ─────────     │  │ │
+│  │  └──────────┘    │ 从事件流重建 L0-L4│──┼──┼─▶│ 模式识别      │  │ │
+│  │                  │ 记忆并注入上下文   │  │  │  │ 自动技能提取  │  │ │
+│  │                  └──────────────────┘  │  │  └───────────────┘  │ │
+│  └────────────────────────────────────────┘  └─────────────────────┘ │
+│                                                                       │
+└───────────────────────────────┬───────────────────────────────────────┘
+                                │
+┌───────────────────────────────┼───────────────────────────────────────┐
+│                        持久化层                                        │
+│                                                                       │
+│  ┌─────────────────────┐  ┌─────────────┐  ┌──────────────────────┐  │
+│  │ Event Store (SQLite) │  │  Neo4j      │  │ File Store           │  │
+│  │ ───────────────────│  │  ───────────│  │ ───────────────────│  │
+│  │ · 事件日志 (不可变)  │  │  · 情报图谱  │  │  · 原始证据文件       │  │
+│  │ · 事件快照 (加速)    │  │  · 实体关系  │  │  · 技能脚本/代码      │  │
+│  │ · 序列号 (严格递增)  │  │  · 画像数据  │  │  · 会话归档           │  │
+│  └─────────────────────┘  └─────────────┘  └──────────────────────┘  │
+└───────────────────────────────────────────────────────────────────────┘
+</pre>
+
+    </div>
+  </div>
+</div>
+
+<div class="section">
+  <h3>核心概念：Write Side vs Read Side (CQRS)</h3>
+
+  <table style="width:100%; border-collapse: collapse;">
+    <tr style="background: #f0f6fc;">
+      <th style="padding: 10px; text-align: left; width: 50%;">Write Side (命令端)</th>
+      <th style="padding: 10px; text-align: left; width: 50%;">Read Side (查询端)</th>
+    </tr>
+    <tr>
+      <td style="padding: 10px; vertical-align: top;">
+        <strong>只做一件事：产生事件</strong><br><br>
+        Agent 认知循环 → 调用工具 → 工具执行 → <strong>产生事件</strong><br><br>
+        不做任何查询，不构建任何视图。只验证规则，然后追加事件到 Event Store。
+      </td>
+      <td style="padding: 10px; vertical-align: top;">
+        <strong>只做一件事：消费事件构建投影</strong><br><br>
+        内存投影：从事件流重建当前记忆 L0-L4<br>
+        Neo4j 投影：实体+关系实时同步<br>
+        UI 投影：WebSocket 推送时间线更新
+      </td>
+    </tr>
+  </table>
+</div>
+
+<div class="section">
+  <h3>事件类型体系</h3>
+  <div class="mockup">
+    <div class="mockup-header">核心事件类型 (12种)</div>
+    <div class="mockup-body">
+
+<pre style="font-size: 11px; background: #0d1117; color: #c9d1d9; padding: 12px; border-radius: 4px;">
+┌───────────────────┬──────────────────────────────────────────────────┐
+│ 事件类型           │ 携带数据                                         │
+├───────────────────┼──────────────────────────────────────────────────┤
+│ TaskStarted       │ task_id, target_identifier, goal, constraints    │
+│ ThoughtLogged     │ reasoning_trace, hypotheses, confidence          │
+│ ToolCalled        │ tool_name, params, call_site_context             │
+│ ToolSucceeded     │ output_snapshot, tokens_consumed, duration_ms    │
+│ ToolFailed        │ error_type, error_message, stack_context         │
+│ MemoryWritten     │ memory_layer(L1-L4), content, merge_strategy    │
+│ SkillEvolved      │ skill_id, evolution_stage(1→2→3), diff_from_prev │
+│ RelationDiscovered│ source_entity, relation_type, target_entity, evid│
+│ GuardrailTriggered│ rule_id, reason, action_taken                    │
+│ UserIntervened    │ intervention_type, decision, context_snapshot    │
+│ TaskCompleted     │ task_id, outcome, summary, skills_updated        │
+│ SnapshotCreated   │ sequence_range, compressed_state                 │
+└───────────────────┴──────────────────────────────────────────────────┘
+</pre>
+    </div>
+  </div>
+</div>
+
+<div class="section">
+  <h3>相对于 GA 的关键改进</h3>
+
+  <table style="width:100%; border-collapse: collapse;">
+    <tr style="background: #f0f6fc;">
+      <th style="padding: 8px; text-align: left; width: 30%;">维度</th>
+      <th style="padding: 8px; text-align: left; width: 35%;">GenericAgent (文件记忆)</th>
+      <th style="padding: 8px; text-align: left; width: 35%;">方案 B (事件溯源)</th>
+    </tr>
+    <tr>
+      <td style="padding: 8px;"><strong>可追溯性</strong></td>
+      <td style="padding: 8px;">L4 保存对话归档，但缺乏结构化时序索引</td>
+      <td style="padding: 8px; background: #f6f8fa;">每个决策的完整因果链可精确回溯</td>
+    </tr>
+    <tr>
+      <td style="padding: 8px;"><strong>进化透明度</strong></td>
+      <td style="padding: 8px;">技能从 SOP→代码，中间推理不可见</td>
+      <td style="padding: 8px; background: #f6f8fa;">SkillEvolved 事件记录每次进化的 diff 和触发原因</td>
+    </tr>
+    <tr>
+      <td style="padding: 8px;"><strong>记忆一致性</strong></td>
+      <td style="padding: 8px;">直接写入文件，可能冲突或不一致</td>
+      <td style="padding: 8px; background: #f6f8fa;">事件是唯一真相源，记忆投影始终一致</td>
+    </tr>
+    <tr>
+      <td style="padding: 8px;"><strong>学习价值</strong></td>
+      <td style="padding: 8px;">只能看到结果，看不到过程</td>
+      <td style="padding: 8px; background: #f6f8fa;">时间线回放让你<strong>观察 agent 如何思考</strong>，这对学 OSINT/社工极有价值</td>
+    </tr>
+    <tr>
+      <td style="padding: 8px;"><strong>实验能力</strong></td>
+      <td style="padding: 8px;">难以做 A/B 对比</td>
+      <td style="padding: 8px; background: #f6f8fa;">从同一快照分叉不同策略，对比结果</td>
+    </tr>
+  </table>
+</div>
+
+<div class="section">
+  <h3>时间线回放 — 最核心的学习价值</h3>
+  <p>想象你让 agent 收集某个目标的情报。回放功能让你看到：</p>
+
+  <div class="mockup">
+    <div class="mockup-header">回放视图范例</div>
+    <div class="mockup-body">
+<pre style="font-size: 11px; background: #0d1117; color: #c9d1d9; padding: 12px; border-radius: 4px; overflow-x: auto;">
+时间线 ▸▸▸ Round #1 ── Round #2 ── Round #3 ── Round #4 ── Round #5
+         │            │            │            │            │
+         ▼            ▼            ▼            ▼            ▼
+    [TaskStarted] [ThoughtLogged] [ToolCalled] [ToolResult] [ RelationDiscovered ]
+    目标: 张三     假设: 微博可能   web_scan:    发现3条关联  (张三)-(同公司)→(李四)
+    收集公开信息   包含真实姓名     weibo.com    账号           置信度: 0.85
+                                                                  ↓
+                                                            [ThoughtLogged]
+                                                            分析: 可通过李四的公司
+                                                            LinkedIn 反查更多信息...
+
+┌─ 点击 Round #4 展开 ──────────────────────────────────────────────────────┐
+│ ToolCalled: web_scan                                                    │
+│   params: {"url": "https://weibo.com/u/12345678", "mode": "text"}       │
+│   ──────────────────────────────────────────────────────────────────    │
+│ ToolResulted: web_scan                                                   │
+│   output_snapshot: "个人资料: 张三, 关注 356, 粉丝 1204, 简介: 某科技..." │
+│   tokens_consumed: 842                                                   │
+│   ──────────────────────────────────────────────────────────────────    │
+│ ThoughtLogged:                                                           │
+│   "在简介中发现公司名'某科技'，与之前LinkedIn数据匹配。置信度从0.6→0.9。" │
+│   hypotheses: ["可通过公司邮箱格式推断其邮箱", "关注列表中有同事账号"]      │
+└──────────────────────────────────────────────────────────────────────────┘
+</pre>
+    </div>
+  </div>
+</div>
+
+<div class="section">
+  <h3>方案 B 的技术代价</h3>
+  <div class="pros-cons">
+    <div class="cons">
+      <h4>需要注意的问题</h4>
+      <ul>
+        <li><strong>Event Store 膨胀</strong>：一个任务可能产生 50-200 个事件，需快照机制压缩</li>
+        <li><strong>投影延迟</strong>：读侧从事件重建状态有计算开销，需缓存策略</li>
+        <li><strong>开发复杂度</strong>：团队需要理解 CQRS 和事件建模思维</li>
+        <li><strong>事件版本演进</strong>：事件 schema 变化时需处理向后兼容</li>
+      </ul>
+    </div>
+  </div>
+</div>
