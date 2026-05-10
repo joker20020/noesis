@@ -100,6 +100,10 @@ git clone https://github.com/yourname/noesis.git
 cd noesis
 cp .env.example .env    # 编辑填入你的 API 密钥
 uv sync
+# activate venv
+source venv/bin/activate
+playwright install
+playwright install-deps # if needed
 ```
 
 ### 2. 启动 Neo4j

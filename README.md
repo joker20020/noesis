@@ -100,6 +100,10 @@ git clone https://github.com/yourname/noesis.git
 cd noesis
 cp .env.example .env    # Edit with your API keys
 uv sync
+# activate venv
+source venv/bin/activate
+playwright install
+playwright install-deps # if needed
 ```
 
 ### 2. Start Neo4j
