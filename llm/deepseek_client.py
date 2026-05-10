@@ -1,7 +1,111 @@
-import json
-import httpx
-from llm.base import LlmClient, LlmResponse, Message, ToolCall, ToolSchema
+"""DeepSeek client — AgentScope-compatible formatter.
+
+Reference: https://github.com/agentscope-ai/agentscope/blob/main/src/agentscope/formatter/_deepseek_formatter.py
+"""
+import json, httpx
+from llm.base import (
+    LlmClient, LlmResponse, Message, ContentBlock, ToolCall, ToolSchema,
+    ProviderConverter,
+)
 from agent.config import LLMConfig
+
+
+class DeepSeekConverter(ProviderConverter):
+    """AgentScope-compatible: tool_result as separate messages, reasoning_content as top-level key."""
+
+    def __init__(self, thinking: bool = True) -> None:
+        super().__init__()
+        self.thinking = thinking
+
+    def to_provider(self, messages: list[Message], tools: list[ToolSchema] | None = None):
+        provider_msgs = []
+        for m in messages:
+            text_blocks = [b for b in m.content if b.type == "text"]
+            thinking_blocks = [b for b in m.content if b.type == "thinking"]
+            tool_use_blocks = [b for b in m.content if b.type == "tool_use"]
+
+            # Tool results go DIRECTLY to message list as separate messages
+            for b in m.content:
+                if b.type == "tool_result":
+                    output = b.output or ""
+                    provider_msgs.append({
+                        "role": "tool",
+                        "tool_call_id": b.tool_call_id or "",
+                        "content": str(output),
+                    })
+
+            # Build content from text blocks
+            content_text = "\n".join(b.text or "" for b in text_blocks) if text_blocks else ""
+            reasoning_text = "\n".join(b.thinking or "" for b in thinking_blocks) if thinking_blocks else None
+
+            # Build tool_calls
+            tool_calls = None
+            if tool_use_blocks:
+                tool_calls = [{
+                    "id": b.id or "",
+                    "type": "function",
+                    "function": {
+                        "name": b.name or "",
+                        "arguments": json.dumps(b.input or {}, ensure_ascii=False),
+                    }
+                } for b in tool_use_blocks]
+
+            # Assemble message
+            msg: dict = {"role": m.role, "content": content_text or ""}
+            if reasoning_text:
+                msg["reasoning_content"] = reasoning_text
+            elif tool_calls:
+                # DeepSeek requires reasoning_content when tool_calls exist
+                msg["reasoning_content"] = ""
+            if tool_calls:
+                msg["tool_calls"] = tool_calls
+
+            if msg.get("content") or msg.get("tool_calls"):
+                provider_msgs.append(msg)
+            if msg.get("reasoning_content") and self.thinking:
+                provider_msgs.append(msg)
+
+        provider_tools = None
+        if tools:
+            provider_tools = []
+            for t in tools:
+                if isinstance(t, dict):
+                    if "type" in t:
+                        provider_tools.append(t)
+                    else:
+                        provider_tools.append({
+                            "type": "function",
+                            "function": {"name": t.get("name",""), "description": t.get("description",""), "parameters": t.get("parameters",{})}
+                        })
+                else:
+                    provider_tools.append({
+                        "type": "function",
+                        "function": {"name": t.name, "description": t.description, "parameters": t.parameters}
+                    })
+
+        return provider_msgs, provider_tools
+
+    def from_provider(self, response: dict) -> LlmResponse:
+        choice = response.get("choices", [{}])[0]
+        msg = choice.get("message", {})
+        content = []
+
+        reasoning = msg.get("reasoning_content", "")
+        if reasoning:
+            content.append(ContentBlock(type="thinking", thinking=reasoning))
+        
+        content.append(ContentBlock(type="text", text=msg["content"]))
+
+        tool_calls = []
+        for tc in msg.get("tool_calls", []):
+            fn = tc.get("function", {})
+            try:
+                args = json.loads(fn.get("arguments", "{}")) if isinstance(fn.get("arguments", ""), str) else fn.get("arguments", {})
+            except (json.JSONDecodeError, TypeError):
+                args = {}
+            tool_calls.append(ToolCall(id=tc.get("id", ""), name=fn.get("name", ""), arguments=args))
+
+        return LlmResponse(content=content, tool_calls=tool_calls)
 
 
 class DeepSeekClient(LlmClient):
@@ -10,63 +114,28 @@ class DeepSeekClient(LlmClient):
         self.base_url = config.base_url or "https://api.deepseek.com"
         self._api_key = config.api_key
         self._max_tokens = config.max_tokens
-        self._temperature = config.temperature
+        self._converter = DeepSeekConverter()
 
     async def chat(self, messages: list[Message], tools: list[ToolSchema] | None = None) -> LlmResponse:
-        msgs = []
-        for m in messages:
-            if m.role == "tool":
-                # Send tool results as plain user-context messages to avoid
-                # API requirement for preceding tool_calls in history
-                msgs.append({"role": "user", "content": f"[Tool result: {m.name or 'tool'}] {m.content}"})
-            else:
-                msgs.append({"role": m.role, "content": m.content})
-        # Ensure messages alternate: merge consecutive same-role messages
-        merged = []
-        for m in msgs:
-            if merged and merged[-1]["role"] == m["role"]:
-                merged[-1]["content"] += "\n" + m["content"]
-            else:
-                merged.append(m)
-        msgs = merged
+        provider_msgs, provider_tools = self._converter.to_provider(messages, tools)
         body: dict = {
-            "model": self.model,
-            "messages": msgs,
-            "max_tokens": self._max_tokens,
-            "temperature": self._temperature,
+            "model": self.model, "messages": provider_msgs,
+            "max_tokens": self._max_tokens, "thinking": {"type": "enabled"},
         }
-        if tools:
-            # tools are already in API format from dispatcher.get_schemas()
-            body["tools"] = tools if isinstance(tools[0], dict) else [{
-                "type": "function",
-                "function": {"name": t.name, "description": t.description, "parameters": t.parameters},
-            } for t in tools]
+        if provider_tools:
+            body["tools"] = provider_tools
 
         async with httpx.AsyncClient(timeout=120) as client:
             resp = await client.post(
                 f"{self.base_url}/v1/chat/completions",
-                headers={
-                    "Authorization": f"Bearer {self._api_key}",
-                    "Content-Type": "application/json",
-                },
-                json=body,
-            )
+                headers={"Authorization": f"Bearer {self._api_key}", "Content-Type": "application/json"},
+                json=body)
             if resp.status_code >= 400:
-                print(f"[DeepSeek {resp.status_code}] Request model={body['model']} msgs={len(body['messages'])} tools={len(body.get('tools', []))}")
-                print(f"[DeepSeek {resp.status_code}] Response: {resp.text[:1000]}")
+                print(f"[DeepSeek] {resp.status_code}: {resp.text[:200]}")
+                # Print tool_calls messages and their following messages
+                for i, m in enumerate(provider_msgs):
+                    if m.get("tool_calls"):
+                        next_msg = provider_msgs[i+1] if i+1 < len(provider_msgs) else {}
+                        print(f"[DeepSeek] msg[{i}]: tool_calls ids={[tc['id'] for tc in m['tool_calls']]} next_role={next_msg.get('role')} next_tcid={next_msg.get('tool_call_id')}")
             resp.raise_for_status()
-            data = resp.json()
-
-        choice = data["choices"][0]
-        tool_calls = []
-        if choice["message"].get("tool_calls"):
-            for tc in choice["message"]["tool_calls"]:
-                tool_calls.append(ToolCall(
-                    id=tc["id"],
-                    name=tc["function"]["name"],
-                    arguments=json.loads(tc["function"]["arguments"]),
-                ))
-        return LlmResponse(
-            content=choice["message"].get("content"),
-            tool_calls=tool_calls,
-        )
+            return self._converter.from_provider(resp.json())

@@ -12,6 +12,7 @@ dependencies = [
     "uvicorn[standard]>=0.30.0",
     "playwright>=1.44.0",
     "shortuuid>=1.0.13",
+    "pycryptodome>=3.20.0",
 ]
 
 [project.optional-dependencies]

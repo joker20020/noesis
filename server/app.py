@@ -131,10 +131,12 @@ async def get_history():
     for r in records:
         step = r["step"]
         for block in _parse_content(step.get("content", [])):
-            if block["type"] == "text":
+            if block["type"] == "thinking":
+                text = block.get("thinking", block.get("text", ""))
+                if text:
+                    messages.append({"role": "assistant", "content": text})
+            elif block["type"] == "text":
                 messages.append({"role": step.get("role", "assistant"), "content": block.get("text", "")})
-            elif block["type"] == "thinking":
-                messages.append({"role": "assistant", "content": "[thinking] " + block.get("thinking", "")})
             elif block["type"] == "tool_result":
                 messages.append({"role": "system", "content": f"[{block.get('name', 'tool')}]\n{block.get('output', '')}"})
     return {"session_id": FIXED_SESSION, "messages": messages}

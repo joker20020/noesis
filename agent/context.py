@@ -106,18 +106,17 @@ class ContextBuilder:
         system = self.build_system_prompt(
             turn_number, recent_summaries, key_info, history_summary, session_id, l1_skills,
         )
-        messages = [Message(role="system", content=system)]
+        messages = [Message.text_msg("system", system)]
         messages.extend(history)
-        messages.append(Message(role="user", content=user_message))
+        if user_message:
+            messages.append(Message.text_msg("user", user_message))
         return messages
 
     def wrap_tool_result(self, tool_name: str, tool_output: str, call_id: str) -> Message:
-        return Message(role="tool", content=tool_output, tool_call_id=call_id, name=tool_name)
+        return Message.tool_result_msg("system", call_id, tool_name, tool_output)
 
     def wrap_assistant(self, content: str | None, tool_calls) -> Message:
         if tool_calls:
-            tool_call_text = "\n".join(
-                f"[ToolCall: {tc.name}({tc.arguments})]" for tc in tool_calls
-            )
-            return Message(role="assistant", content=content or tool_call_text)
-        return Message(role="assistant", content=content or "")
+            text = "\n".join(f"[ToolCall: {tc.name}({tc.arguments})]" for tc in tool_calls)
+            return Message.text_msg("assistant", content or text)
+        return Message.text_msg("assistant", content or "")

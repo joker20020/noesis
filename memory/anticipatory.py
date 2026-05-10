@@ -1,5 +1,10 @@
 """Anticipatory retrieval — pre-load relevant memories before agent asks."""
+import re
 from memory.neo4j_client import Neo4jClient
+
+
+def _safe_lucene(q: str) -> str:
+    return re.sub(r'[+\-&|!(){}[\]^"~*?:\\/]', ' ', q)
 
 
 class AnticipatoryRetrieval:
@@ -15,7 +20,7 @@ class AnticipatoryRetrieval:
                 """CALL db.index.fulltext.queryNodes('entity_search', $q)
                    YIELD node AS e, score WHERE score > 0.3
                    RETURN e LIMIT 5""",
-                {"q": current_input[:200]},
+                {"q": _safe_lucene(current_input[:200])},
             )
             for r in records:
                 result["entities"].append(dict(r["e"]))

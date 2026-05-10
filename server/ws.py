@@ -29,10 +29,14 @@ class ChatHandler:
                     except Exception:
                         continue
                     for block in blocks:
-                        if block["type"] == "text":
+                        if block["type"] == "thinking":
+                            text = block.get("thinking", block.get("text", ""))
+                            if text:
+                                history.append({"role": "assistant", "content": text})
+                        elif block["type"] == "text":
                             history.append({"role": step.get("role", "assistant"), "content": block.get("text", "")})
                         elif block["type"] == "tool_result":
-                            history.append({"role": "system", "content": f"[{block.get('name', 'tool')}]\n{block.get('output', '')}"})
+                            history.append({"role": "tool", "content": f"[{block.get('name', 'tool')}]\n{block.get('output', '')}"})
             await ws.send_text(json.dumps({"type": "history", "messages": history}, default=str))
         except Exception:
             pass

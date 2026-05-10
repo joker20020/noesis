@@ -23,6 +23,7 @@ class CompressionPipeline:
         return truncate_head_tail(output, max_len=limit)
 
     def stage2_compress_tags(self, messages: list[dict], recent_exempt: int = 10) -> list[dict]:
+        """Compress only thinking/tool_use/tool_result blocks. Text blocks preserved."""
         result = []
         for i, msg in enumerate(messages):
             is_recent = i >= len(messages) - recent_exempt
@@ -30,10 +31,18 @@ class CompressionPipeline:
                 result.append(msg)
                 continue
             content = msg.get("content", "")
-            if len(content) > 800:
-                result.append({**msg, "content": truncate_head_tail(content, max_len=800)})
-            else:
-                result.append(msg)
+            # Split by tool marker lines; only compress those, keep text intact
+            lines = content.split("\n")
+            compressed = []
+            for line in lines:
+                if line.startswith("[think]") or line.startswith("[tool:") or line.startswith("[result:"):
+                    if len(line) > 300:
+                        compressed.append(line[:150] + "..." + line[-150:])
+                    else:
+                        compressed.append(line)
+                else:
+                    compressed.append(line)  # Text lines preserved as-is
+            result.append({**msg, "content": "\n".join(compressed)})
         return result
 
     def stage3_evict(self, messages: list[dict]) -> list[dict]:

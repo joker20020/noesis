@@ -1,4 +1,5 @@
 """Unified memory retrieval — single entry point for L0-L4."""
+import re
 from pathlib import Path
 from tools.base import BaseTool, ToolSchema, ToolCall, ToolResult
 from memory.neo4j_client import Neo4jClient
@@ -69,11 +70,13 @@ class MemorySearchTool(BaseTool):
 
     async def _rag_local(self, call_id: str, question: str, hops: int, top_k: int) -> ToolResult:
         """L2 Entity GraphRAG: seed from Entity ft-index, include seeds, then multi-hop traverse."""
+        # Escape Lucene special chars to avoid parse errors
+        safe_q = re.sub(r'[+\-&|!(){}[\]^"~*?:\\/]', ' ', question)
         seed_query = """
             CALL db.index.fulltext.queryNodes('entity_search', $q) YIELD node AS entity, score
             RETURN entity.entity_id AS id, score ORDER BY score DESC LIMIT 10
         """
-        seeds = await self._neo4j.run(seed_query, {"q": question})
+        seeds = await self._neo4j.run(seed_query, {"q": safe_q})
         if not seeds:
             return ToolResult(call_id=call_id, name="memory_search", success=True,
                             output="(No L2 entities found. Use entity_manage to create entities.)")
