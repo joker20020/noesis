@@ -84,7 +84,13 @@ class QQAdapter:
             return intents
 
     async def stop(self):
-        pass
+        if self._client:
+            try:
+                # botpy's internal client uses aiohttp.ClientSession — force close
+                if hasattr(self._client, '_http') and hasattr(self._client._http, '_session'):
+                    await self._client._http._session.close()
+            except Exception:
+                pass
 
     async def _on_message(self, message, is_group: bool):
         msg_id = getattr(message, 'id', None) or str(time.time())
@@ -101,6 +107,15 @@ class QQAdapter:
         user_id = getattr(author, 'user_openid', '') if author else ''
 
         if self._allowed and str(user_id) not in self._allowed:
+            return
+
+        if content.startswith("/restart") or content.startswith("/clear"):
+            await self._engine.restart_session()
+            await self._send_reply(message, "会话已重置", user_id, is_group)
+            return
+        if content.startswith("/stop"):
+            self._engine.abort()
+            await self._send_reply(message, "已停止", user_id, is_group)
             return
 
         result = await self._engine.run(content)

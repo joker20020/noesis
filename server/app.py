@@ -86,27 +86,17 @@ async def lifespan(app: FastAPI):
 
     yield
 
-    # Graceful shutdown — cancel all tasks, close engine, clean event loop
-    all_tasks = [t for t in asyncio.all_tasks() if t is not asyncio.current_task()]
-    for task in all_tasks:
-        task.cancel()
-    for task in all_tasks:
-        try:
-            await task
-        except (asyncio.CancelledError, Exception):
-            pass
+    # Graceful shutdown
+    try:
+        for task in _adapter_tasks:
+            task.cancel()
+        await asyncio.gather(*_adapter_tasks, return_exceptions=True)
+    except Exception:
+        pass
     try:
         await _engine.close()
     except Exception:
         pass
-    # Let pending callbacks drain
-    await asyncio.sleep(0.3)
-    loop = asyncio.get_event_loop()
-    pending = asyncio.all_tasks(loop)
-    for task in pending:
-        task.cancel()
-    if pending:
-        await asyncio.wait(pending, timeout=2)
 
 
 app = FastAPI(title="infoCap", lifespan=lifespan)
@@ -263,13 +253,7 @@ async def abort():
 
 @app.delete("/api/session")
 async def clear_session():
-    await _engine.neo4j.run(
-        """MATCH (s:Session {session_id: $sid})
-           OPTIONAL MATCH (s)-[:HAS_STEP]->(first:ExecutionStep)
-           OPTIONAL MATCH (first)-[:NEXT*0..]->(step:ExecutionStep)
-           DETACH DELETE step, first, s""",
-        {"sid": FIXED_SESSION},
-    )
+    await _engine.restart_session()
     return {"status": "cleared"}
 
 

@@ -47,9 +47,9 @@ class DiscordAdapter:
                 return
 
             # Command dispatch
-            if text.startswith("new"):
-                self._engine.abort()
-                await message.reply("Session reset.")
+            if text.startswith("restart") or text.startswith("clear"):
+                await self._engine.restart_session()
+                await message.reply("Session restarted (DB + memory cleared).")
                 return
             if text.startswith("stop"):
                 self._engine.abort()

@@ -75,6 +75,23 @@ class AgentEngine:
         """Send interrupt signal to stop current agent response."""
         self._loop.abort()
 
+    def clear_history(self):
+        """Clear in-memory history for a fresh conversation."""
+        self._loop._history.clear()
+        self._loop._turn_count = 0
+        self._loop._last_20_summaries.clear()
+        self._loop._history_summary = ""
+
+    async def restart_session(self):
+        """Clear DB records + in-memory history. Full restart."""
+        self.clear_history()
+        await self.neo4j.run(
+            """MATCH (s:Session {session_id: $sid})
+               OPTIONAL MATCH (s)-[:HAS_STEP]->(first:ExecutionStep)
+               OPTIONAL MATCH (first)-[:NEXT*0..]->(step:ExecutionStep)
+               DETACH DELETE step, first, s""",
+            {"sid": self._loop.session_id})
+
     async def close(self):
         self._subconscious.stop()
         if self._sub_task:

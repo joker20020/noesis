@@ -284,6 +284,9 @@ class WeChatAdapter:
         if text.startswith("/stop") or text.startswith("/abort"):
             self._engine.abort()
             await self._send_text(uid, "已停止", ctx); return
+        if text.startswith("/restart") or text.startswith("/clear"):
+            await self._engine.restart_session()
+            await self._send_text(uid, "会话已重置", ctx); return
 
         # Run agent
         result = await self._engine.run(text)

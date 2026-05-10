@@ -109,6 +109,19 @@ class SkillRegistry:
         )
         return [r["c"] for r in records]
 
+    async def delete(self, skill_id: str):
+        """Delete skill from Neo4j and filesystem."""
+        import shutil
+        skill = await self.get(skill_id)
+        if skill:
+            d = Path(skill.get("dir", ""))
+            if d.exists():
+                shutil.rmtree(d, ignore_errors=True)
+        await self._neo4j.run(
+            "MATCH (s:Skill {skill_id: $sid}) DETACH DELETE s", {"sid": skill_id})
+        await self._neo4j.run(
+            "MATCH (c:SkillCategory) WHERE NOT (c)<-[:BELONGS_TO]-(:Skill) DETACH DELETE c")
+
     async def update_stage(self, skill_id: str, new_stage: str, content: str = ""):
         """Evolve skill stage and update SKILL.md content (SOP text, etc.)."""
         await self._neo4j.run(

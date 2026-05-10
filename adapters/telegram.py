@@ -50,10 +50,14 @@ class TelegramAdapter:
         async def cmd_stop(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
             self._engine.abort()
             await update.message.reply_text("Stopped.")
+        async def cmd_restart(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+            await self._engine.restart_session()
+            await update.message.reply_text("Session restarted.")
 
         self._app.add_handler(CommandHandler("start", cmd_start))
         self._app.add_handler(CommandHandler("new", cmd_new))
         self._app.add_handler(CommandHandler("stop", cmd_stop))
+        self._app.add_handler(CommandHandler("restart", cmd_restart))
         self._app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_msg))
 
         print(f"[Telegram] Started (allowed: {len(self._allowed)} users)")

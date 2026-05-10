@@ -55,6 +55,12 @@ class _FeishuHandler(lark.ws.EventHandler):
             return
         chat_id = event.message.chat_id
 
+        if text.startswith("/restart") or text.startswith("/clear"):
+            await self._engine.restart_session()
+            await ctx.do(CreateMessageRequest.builder().receive_id_type("chat_id").request_body(
+                CreateMessageRequestBody.builder().msg_type("text").content(json.dumps({"text": "会话已重置"})).build()).build())
+            return
+
         result = await self._engine.run(text)
         # Split and reply
         for i in range(0, len(result), 4000):

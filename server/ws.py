@@ -50,6 +50,10 @@ class ChatHandler:
                     await ws.send_text(json.dumps({"type": "message", "content": "[Interrupted]"}))
                     continue
                 user_input = data.get("content", "")
+                if user_input.strip() == "/restart":
+                    await self._engine.restart_session()
+                    await ws.send_text(json.dumps({"type": "message", "content": "[Session restarted]"}))
+                    continue
                 if not user_input.strip():
                     continue
 

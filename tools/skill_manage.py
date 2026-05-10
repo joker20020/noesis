@@ -17,7 +17,7 @@ class SkillManageTool(BaseTool):
             parameters={
                 "type": "object",
                 "properties": {
-                    "action": {"type": "string", "enum": ["register", "link"]},
+                    "action": {"type": "string", "enum": ["register", "link", "delete"]},
                     "skill_id": {"type": "string", "description": "Skill ID like 'category/name'"},
                     "name": {"type": "string", "description": "Display name (register)"},
                     "category": {"type": "string", "description": "Category like 'web_automation' (register)"},
@@ -58,6 +58,11 @@ class SkillManageTool(BaseTool):
                 )
                 return ToolResult(call_id=call.id, name="skill_manage", success=True,
                                   output=f"Linked {sid} -[{rel}]-> {target}")
+
+            elif action == "delete":
+                await self._reg.delete(sid)
+                return ToolResult(call_id=call.id, name="skill_manage", success=True,
+                                  output=f"Skill {sid} deleted (Neo4j + filesystem + empty categories cleaned up)")
 
             return ToolResult(call_id=call.id, name="skill_manage", success=False,
                               output="", error=f"Unknown action: {action}. Use register or link here; use start_long_term_update for evolution.")
