@@ -64,3 +64,5 @@ class Config(BaseSettings):
     max_subagent_rounds: int = 20
     subconscious_idle_seconds: int = 300
     subconscious_timer_seconds: int = 1800
+    web_host: str = "127.0.0.1"
+    web_port: int = 8000
