@@ -11,10 +11,45 @@ Execution trace:
 
 Summary from agent: {summary}
 
-Output ONLY valid JSON:
-{{"entities": [{{"entity_id":"ent_xxx","entity_type":"Person|Service|Config|Error|...","name":"short name","content":"description","properties":{{"key":"value"}}}}], "relations":[{{"from":"ent_xxx","type":"MANAGES|CAUSED_BY|DEPENDS_ON|...","to":"ent_yyy"}}]}}
+## Extraction Rules
+1. **Entity types**: Use precise types (Service, Config, ErrorPattern, Person,
+   Project, APIEndpoint, FilePath, Command, Constraint). Avoid generic "Fact".
+2. **Deduplication mindset**: If you see an entity that clearly refers to the
+   same real-world object as a previously extracted one, reuse the same name
+   and type. The system will merge them automatically.
+3. **Relationship inference**: Extract BOTH explicit relationships
+   (stated in text) AND implicit dependencies (logical causality,
+   prerequisite chains, containment).
+4. **Cross-task value filter**: Only extract knowledge reusable across sessions.
+   Skip one-off file names, temporary variables, ephemeral IDs.
+5. **Names must be stable**: No timestamps, no random IDs, no session-specific
+   qualifiers in entity names.
 
-entity_type and relation type are free-form. Only extract cross-task-reusable knowledge."""
+## Output Schema (strict — only these fields)
+{{
+  "entities": [
+    {{
+      "entity_id": "ent_xxx",
+      "entity_type": "Service|Config|ErrorPattern|...",
+      "name": "short unique name",
+      "content": "detailed description including purpose and behavior",
+      "properties": {{"key": "value"}}
+    }}
+  ],
+  "relations": [
+    {{
+      "from": "ent_xxx",
+      "to": "ent_yyy",
+      "type": "DEPENDS_ON|MANAGES|CAUSED_BY|CONTAINS|REQUIRES"
+    }}
+  ]
+}}
+
+Quality guidelines (not output fields):
+- At least 1 relationship per entity (isolated entities are suspicious).
+- Confidence is handled by the system; do not include it.
+- Output ONLY valid JSON. No commentary outside the JSON.
+"""
 
 
 class EntityExtractor:
