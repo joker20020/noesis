@@ -45,10 +45,7 @@ class TelegramAdapter:
                     for i in range(0, len(txt), 4000):
                         await update.message.reply_text(txt[i:i+4000])
 
-            result = await self._engine.run(text, on_event=on_event)
-            if result and result not in ("[Interrupted]", "Max rounds reached."):
-                for i in range(0, len(result), 4000):
-                    await update.message.reply_text(result[i:i+4000])
+            await self._engine.run(text, on_event=on_event)
 
         async def cmd_start(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text("Noesis ready. Commands: /new (reset), /stop (abort).")

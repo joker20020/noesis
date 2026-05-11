@@ -75,15 +75,4 @@ class _FeishuHandler(lark.ws.EventHandler):
                     .build()
                 await ctx.do(req)
 
-        result = await self._engine.run(text, on_event=on_event)
-        # Split and reply final result
-        for i in range(0, len(result), 4000):
-            reply = result[i:i+4000]
-            req = CreateMessageRequest.builder() \
-                .receive_id_type("chat_id") \
-                .request_body(CreateMessageRequestBody.builder()
-                    .msg_type("text")
-                    .content(json.dumps({"text": reply}))
-                    .build()) \
-                .build()
-            await ctx.do(req)
+        await self._engine.run(text, on_event=on_event)

@@ -6,7 +6,7 @@ import asyncio, base64, hashlib, json, random, re, struct, time, uuid
 from pathlib import Path
 from Crypto.Cipher import AES
 import httpx
-from adapters.formatters import merge_events
+from adapters.formatters import format_event, should_skip_for_platform
 
 API = "https://ilinkai.weixin.qq.com"
 CDN = "https://novac2c.cdn.weixin.qq.com/c2c"
@@ -294,41 +294,39 @@ class WeChatAdapter:
             await self._engine.restart_session()
             await self._send_text(uid, "会话已重置", ctx); return
 
-        # Run agent with intermediate events
-        event_buffer: list[dict] = []
+        # Run agent with real-time event streaming
+        msg_count = 0
+        last_send_time = 0
+
+        async def _throttled_send(text_piece: str, use_ctx: bool = True) -> bool:
+            nonlocal msg_count, last_send_time
+            if msg_count >= 9 or not text_piece.strip():
+                return False
+            now = time.time()
+            if msg_count > 0 and now - last_send_time < 6 * msg_count:
+                await asyncio.sleep(6 * msg_count - (now - last_send_time))
+                now = time.time()
+            d = await self._send_text(uid, text_piece, ctx if use_ctx and msg_count == 0 else "")
+            if d.get("ret", 0) == 0:
+                msg_count += 1
+                last_send_time = now
+                return True
+            return False
 
         async def on_event(event):
-            event_buffer.append(event)
+            if should_skip_for_platform(event, "wechat"):
+                return
+            txt = format_event(event, "wechat")
+            if not txt:
+                return
+            for i in range(0, len(txt), 2000):
+                piece = txt[i:i + 2000]
+                await _throttled_send(piece, use_ctx=(i == 0))
 
         result = await self._engine.run(text, on_event=on_event)
-        print(f"[WeChat] Reply {len(result)} chars, {len(event_buffer)} intermediate events")
+        print(f"[WeChat] Reply streamed ({msg_count} msgs)")
 
-        # Send merged intermediate events
-        merged = merge_events(event_buffer, platform="wechat")
-        sent = 0
-        for chunk in merged:
-            if sent >= 5:
-                break
-            for i in range(0, len(chunk), 2000):
-                if sent >= 5:
-                    break
-                piece = chunk[i:i + 2000]
-                d = await self._send_text(uid, piece, ctx if sent == 0 else "")
-                if d.get("ret", 0) == 0:
-                    sent += 1
-                await asyncio.sleep(1)
-
-        # Send final result
-        for i in range(0, len(result), 2000):
-            chunk = result[i:i + 2000]
-            if sent >= 9:
-                break
-            d = await self._send_text(uid, chunk, ctx if i == 0 else "")
-            if d.get("ret", 0) == 0:
-                sent += 1
-            await asyncio.sleep(1)
-
-        # Send files if referenced
+        # Send files if referenced in final result
         for m in re.finditer(r'\[FILE:([^\]]+)\]', result):
             path = m.group(1)
             if path in media_paths or not Path(path).exists(): continue

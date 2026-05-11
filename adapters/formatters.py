@@ -1,61 +1,66 @@
-"""Event formatters for platform adapters — convert agent events to platform-friendly text."""
+"""Event formatters for platform adapters — convert agent message events to platform-friendly text."""
 import json
 
 
 def format_event(event: dict, platform: str = "generic") -> str | None:
-    """Format an agent event for a specific platform. Returns None to skip."""
-    etype = event.get("type")
+    """Format a message event by iterating over its content blocks. Returns None to skip."""
+    if event.get("type") != "message":
+        return None
 
-    if etype == "thinking":
-        content = _truncate(event.get("content", ""), 800)
-        return f"🤔 {content}"
+    content = event.get("content", [])
+    if not content:
+        return None
 
-    elif etype == "text":
-        return event.get("content", "")
+    parts = []
+    for block in content:
+        btype = block.get("type")
+        if btype == "thinking":
+            t = block.get("thinking", "")
+            if t:
+                parts.append(f"🤔 {_truncate(t, 800)}")
+        elif btype == "text":
+            t = block.get("text", "")
+            if t:
+                parts.append(t)
+        elif btype == "tool_use":
+            name = block.get("name", "tool")
+            inp = block.get("input", {})
+            args_str = json.dumps(inp, ensure_ascii=False)[:300]
+            parts.append(f"🔧 {name}({args_str})")
+        elif btype == "tool_result":
+            name = block.get("name", "tool")
+            out = _truncate(block.get("output", ""), 1000)
+            parts.append(f"📤 {name}: {out}")
 
-    elif etype == "tool_use":
-        name = event.get("name", "tool")
-        args = event.get("arguments", {})
-        args_str = json.dumps(args, ensure_ascii=False)[:300]
-        return f"🔧 {name}({args_str})"
-
-    elif etype == "tool_result":
-        name = event.get("name", "tool")
-        content = _truncate(event.get("content", ""), 1000)
-        return f"📤 {name}: {content}"
-
-    elif etype == "status":
-        return f"⏳ {event.get('status', '')}"
-
-    elif etype == "done":
-        return event.get("content", "")
-
-    elif etype == "message":
-        # Legacy fallback
-        return event.get("content", "")
-
-    return None
+    if not parts:
+        return None
+    return "\n".join(parts)
 
 
 def should_skip_for_platform(event: dict, platform: str) -> bool:
-    """Determine if an event should be skipped for a rate-limited platform."""
+    """Determine if a message event should be skipped for a rate-limited platform."""
     if platform not in ("wechat", "qq"):
         return False
 
-    etype = event.get("type")
-    # For rate-limited platforms, skip empty thinking and very short status
-    if etype == "thinking" and len(event.get("content", "")) < 20:
+    if event.get("type") != "message":
         return True
-    if etype == "status":
-        return True
-    return False
+
+    content = event.get("content", [])
+    has_meaningful = False
+    for block in content:
+        btype = block.get("type")
+        if btype == "thinking" and len(block.get("thinking", "")) >= 20:
+            has_meaningful = True
+        elif btype in ("text", "tool_use", "tool_result"):
+            has_meaningful = True
+    return not has_meaningful
 
 
 def merge_events(events: list[dict], platform: str) -> list[str]:
-    """Merge consecutive short events into fewer messages (for rate-limited platforms)."""
-    if platform not in ("wechat", "qq"):
-        return [format_event(e, platform) for e in events if format_event(e, platform)]
+    """Merge consecutive short events into fewer messages (for rate-limited platforms).
 
+    Deprecated: adapters now stream in real-time. Kept for backward compatibility.
+    """
     merged: list[str] = []
     buffer: list[str] = []
     buf_len = 0
@@ -69,7 +74,7 @@ def merge_events(events: list[dict], platform: str) -> list[str]:
             continue
 
         # tool_use and tool_result are important — flush buffer before them
-        if e.get("type") in ("tool_use", "tool_result"):
+        if any(block.get("type") in ("tool_use", "tool_result") for block in e.get("content", [])):
             if buffer:
                 merged.append("\n".join(buffer))
                 buffer = []

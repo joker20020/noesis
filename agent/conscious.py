@@ -103,6 +103,12 @@ class ConsciousLoop:
 
     async def run(self, user_input: str, max_rounds: int = 30,
                   history: list[dict] | None = None, on_event=None) -> str:
+        
+        # --- Emit structured intermediate events ---
+        async def _emit(event: dict):
+            if on_event:
+                await on_event(event)
+        
         is_ephemeral = self.session_id.startswith("explore_")
 
         if not is_ephemeral:
@@ -212,30 +218,18 @@ class ConsciousLoop:
             # Build round blocks for single-step DB save
             round_blocks: list[dict] = []
 
-            # --- Emit structured intermediate events ---
-            async def _emit(event: dict):
-                if on_event:
-                    await on_event(event)
-
             # Assistant content blocks (thinking + text)
             assistant_blocks = []
-            thinking_parts: list[str] = []
-            text_parts: list[str] = []
             if response.content:
                 for b in response.content:
                     if b.type == "thinking":
                         assistant_blocks.append({"type": "thinking", "thinking": b.thinking or ""})
-                        if b.thinking:
-                            thinking_parts.append(b.thinking)
                     elif b.type == "text":
                         assistant_blocks.append({"type": "text", "text": b.text or ""})
-                        if b.text:
-                            text_parts.append(b.text)
 
-            if thinking_parts:
-                await _emit({"type": "thinking", "content": "\n".join(thinking_parts)})
-            if text_parts:
-                await _emit({"type": "text", "content": "\n".join(text_parts)})
+            # Emit assistant reasoning as a unified message
+            if assistant_blocks:
+                await _emit({"type": "message", "role": "assistant", "content": assistant_blocks})
 
             # Task complete
             if not response.tool_calls:
@@ -248,9 +242,6 @@ class ConsciousLoop:
                 else:
                     self._step_ids.append(None)
                 display = "".join(b.text or "" for b in response.content if b.type == "text") or "Task completed."
-                await _emit({"type": "done", "content": display})
-                # Legacy event for backward compatibility
-                await _emit({"type": "message", "content": display})
                 if not is_ephemeral:
                     await self._finalize_session()
                 return display
@@ -271,7 +262,9 @@ class ConsciousLoop:
                 if self._aborted:
                     return "[Interrupted]"
 
-                await _emit({"type": "tool_use", "name": tc.name, "arguments": tc.arguments})
+                await _emit({"type": "message", "role": "assistant", "content": [
+                    {"type": "tool_use", "id": tc.id, "name": tc.name, "input": tc.arguments}
+                ]})
 
                 result = await self._dispatcher.dispatch(DispatchToolCall(id=tc.id, name=tc.name, arguments=tc.arguments))
                 truncated = self._compression.stage1_tool_output(tc.name, result.output)
@@ -293,7 +286,9 @@ class ConsciousLoop:
                     ContentBlock(type="tool_result", tool_call_id=tc.id, name=tc.name, output=truncated)]))
                 self._step_ids.append(step_id_result)
 
-                await _emit({"type": "tool_result", "name": tc.name, "content": truncated})
+                await _emit({"type": "message", "role": "system", "content": [
+                    {"type": "tool_result", "tool_call_id": tc.id, "name": tc.name, "output": truncated}
+                ]})
 
             raw = [_msg_to_dict(m) for m in self._history]
             if self._compression._char_count(raw) > self._compression.budget:

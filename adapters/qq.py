@@ -4,7 +4,7 @@ import threading
 import time
 from collections import deque
 
-from adapters.formatters import merge_events
+from adapters.formatters import format_event, should_skip_for_platform
 
 try:
     import botpy
@@ -120,16 +120,36 @@ class QQAdapter:
             await self._send_reply(message, "已停止", user_id, is_group)
             return
 
-        event_buffer: list[dict] = []
+        msg_count = 0
+        last_send_time = 0
+
+        async def _throttled_send(text_piece: str) -> bool:
+            nonlocal msg_count, last_send_time
+            if msg_count >= 9 or not text_piece.strip():
+                return False
+            now = time.time()
+            if msg_count > 0 and now - last_send_time < 6 * msg_count:
+                await asyncio.sleep(6 * msg_count - (now - last_send_time))
+                now = time.time()
+            try:
+                await self._send_reply(message, text_piece, user_id, is_group)
+                msg_count += 1
+                last_send_time = now
+                return True
+            except Exception:
+                return False
 
         async def on_event(event):
-            event_buffer.append(event)
+            if should_skip_for_platform(event, "qq"):
+                return
+            txt = format_event(event, "qq")
+            if not txt:
+                return
+            for i in range(0, len(txt), 1500):
+                piece = txt[i:i + 1500]
+                await _throttled_send(piece)
 
-        result = await self._engine.run(content, on_event=on_event)
-        merged = merge_events(event_buffer, platform="qq")
-        for chunk in merged:
-            await self._send_reply(message, chunk, user_id, is_group)
-        await self._send_reply(message, result, user_id, is_group)
+        await self._engine.run(content, on_event=on_event)
 
     async def _send_reply(self, message, text: str, user_id: str, is_group: bool):
         chunks = self._split_text(text, 1500)
