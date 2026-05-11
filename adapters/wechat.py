@@ -9,7 +9,7 @@ import httpx
 
 API = "https://ilinkai.weixin.qq.com"
 CDN = "https://novac2c.cdn.weixin.qq.com/c2c"
-TOKEN_FILE = Path.home() / ".wxbot" / "token.json"
+TOKEN_FILE = Path("./workspace/wechat_token.json")
 TEMP_DIR = Path("./workspace/wechat_media")
 VER = "2.1.10"
 MSG_USER, MSG_BOT = 1, 2
@@ -30,11 +30,16 @@ class WeChatAdapter:
         TEMP_DIR.mkdir(parents=True, exist_ok=True)
 
     async def start(self):
-        self._session = httpx.AsyncClient(timeout=httpx.Timeout(65, connect=10))
-        await self._load_token()
-        if not self._token:
-            await self._qr_login()
-        print(f"[WeChat] Bot connected: {self._bot_id}")
+        try:
+            self._session = httpx.AsyncClient(timeout=httpx.Timeout(65, connect=10))
+            await self._load_token()
+            if not self._token:
+                await self._qr_login()
+            print(f"[WeChat] Bot connected: {self._bot_id}")
+        except Exception as e:
+            print(f"[WeChat] Startup failed: {e}")
+            return
+
         while True:
             try:
                 msgs = await self._get_updates()
