@@ -60,12 +60,19 @@ class DiscordAdapter:
 
             async with message.channel.typing():
                 async def on_event(event):
-                    text = format_event(event, platform="discord")
-                    if text:
-                        for i in range(0, len(text), 1900):
-                            await message.channel.send(text[i:i+1900])
+                    try:
+                        text = format_event(event, platform="discord")
+                        if text:
+                            for i in range(0, len(text), 2000):
+                                await message.channel.send(text[i:i+2000])
+                    except Exception as e:
+                        print(f"[DiscordAdapter] on_event failed: {e}")
 
-                await self._engine.run(text, on_event=on_event)
+                try:
+                    await self._engine.run(text, on_event=on_event)
+                except Exception as e:
+                    print(f"[DiscordAdapter] engine.run failed: {e}")
+                    await message.channel.send(f"Error: {e}")
 
         await self._client.start(self._token)
 

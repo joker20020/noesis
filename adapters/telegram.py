@@ -40,12 +40,19 @@ class TelegramAdapter:
             await ctx.bot.send_chat_action(chat_id=update.effective_chat.id, action="typing")
 
             async def on_event(event):
-                txt = format_event(event, platform="telegram")
-                if txt:
-                    for i in range(0, len(txt), 4000):
-                        await update.message.reply_text(txt[i:i+4000])
+                try:
+                    txt = format_event(event, platform="telegram")
+                    if txt:
+                        for i in range(0, len(txt), 4096):
+                            await update.message.reply_text(txt[i:i+4096])
+                except Exception as e:
+                    print(f"[TelegramAdapter] on_event failed: {e}")
 
-            await self._engine.run(text, on_event=on_event)
+            try:
+                await self._engine.run(text, on_event=on_event)
+            except Exception as e:
+                print(f"[TelegramAdapter] engine.run failed: {e}")
+                await update.message.reply_text(f"Error: {e}")
 
         async def cmd_start(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text("Noesis ready. Commands: /new (reset), /stop (abort).")

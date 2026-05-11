@@ -29,8 +29,10 @@ class AgentEngine:
         self.neo4j = Neo4jClient(config.neo4j)
         if config.llm.provider == "openai":
             self.llm = OpenAIClient(config.llm)
+            self._sub_llm = OpenAIClient(config.llm)
         elif config.llm.provider == "deepseek":
             self.llm = DeepSeekClient(config.llm)
+            self._sub_llm = DeepSeekClient(config.llm)
         else:
             raise ValueError(f"Unknown LLM provider: {config.llm.provider}")
         self.dispatcher = ToolDispatcher()
@@ -41,9 +43,10 @@ class AgentEngine:
             llm_client=self.llm, dispatcher=self.dispatcher,
             neo4j=self.neo4j, config=config, session_id=FIXED_SESSION,
         )
-        self._subconscious = SubconsciousLoop(self.neo4j, config, self.llm, self.dispatcher)
+        self._subconscious = SubconsciousLoop(self.neo4j, config, self._sub_llm, self.dispatcher)
         self._sub_task = None
         self._mcp = None
+        self._run_lock = asyncio.Lock()
 
     def _register_tools(self):
         self.dispatcher.register(FileReadTool())
@@ -78,9 +81,28 @@ class AgentEngine:
         self._sub_task = asyncio.create_task(self._subconscious.start())
 
     async def run(self, user_input: str,
-                  on_event=None) -> str:
-        self._subconscious.touch()
-        return await self._loop.run(user_input, on_event=on_event, max_rounds=30)
+                  on_event=None, session_id: str | None = None) -> str:
+        async with self._run_lock:
+            self._subconscious.touch()
+            # If a different session is requested, swap the loop's session_id temporarily.
+            # This prevents multi-adapter / multi-user collisions on the fixed "noesis" session.
+            original_sid = self._loop.session_id
+            if session_id and session_id != original_sid:
+                self._loop.session_id = session_id
+                # Clear in-memory history so the new session starts fresh.
+                self._loop._history.clear()
+                self._loop._turn_count = 0
+                self._loop._last_20_summaries.clear()
+                self._loop._history_summary = ""
+                self._loop._step_ids.clear()
+                self._loop._last_step_id = None
+            try:
+                return await self._loop.run(user_input, on_event=on_event, max_rounds=30)
+            except Exception as e:
+                print(f"[AgentEngine] Run failed: {e}")
+                return f"Error: {e}"
+            finally:
+                self._loop.session_id = original_sid
 
     def abort(self):
         """Send interrupt signal to stop current agent response."""

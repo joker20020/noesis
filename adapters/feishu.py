@@ -64,15 +64,29 @@ class _FeishuHandler(lark.ws.EventHandler):
             return
 
         async def on_event(event):
-            txt = format_event(event, platform="feishu")
-            if txt:
-                req = CreateMessageRequest.builder() \
-                    .receive_id_type("chat_id") \
-                    .request_body(CreateMessageRequestBody.builder()
-                        .msg_type("text")
-                        .content(json.dumps({"text": txt[:4000]}))
-                        .build()) \
-                    .build()
-                await ctx.do(req)
+            try:
+                txt = format_event(event, platform="feishu")
+                if txt:
+                    req = CreateMessageRequest.builder() \
+                        .receive_id_type("chat_id") \
+                        .request_body(CreateMessageRequestBody.builder()
+                            .msg_type("text")
+                            .content(json.dumps({"text": txt[:5000]}))
+                            .build()) \
+                        .build()
+                    await ctx.do(req)
+            except Exception as e:
+                print(f"[FeishuAdapter] on_event failed: {e}")
 
-        await self._engine.run(text, on_event=on_event)
+        try:
+            await self._engine.run(text, on_event=on_event)
+        except Exception as e:
+            print(f"[FeishuAdapter] engine.run failed: {e}")
+            req = CreateMessageRequest.builder() \
+                .receive_id_type("chat_id") \
+                .request_body(CreateMessageRequestBody.builder()
+                    .msg_type("text")
+                    .content(json.dumps({"text": f"Error: {e}"}))
+                    .build()) \
+                .build()
+            await ctx.do(req)

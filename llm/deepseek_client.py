@@ -2,7 +2,7 @@
 
 Reference: https://github.com/agentscope-ai/agentscope/blob/main/src/agentscope/formatter/_deepseek_formatter.py
 """
-import json, httpx
+import json, httpx, uuid
 from llm.base import (
     LlmClient, LlmResponse, Message, ContentBlock, ToolCall, ToolSchema,
     ProviderConverter,
@@ -10,60 +10,80 @@ from llm.base import (
 from agent.config import LLMConfig
 
 
-class DeepSeekConverter(ProviderConverter):
-    """AgentScope-compatible: tool_result as separate messages, reasoning_content as top-level key."""
+def _ensure_tool_id(raw_id: str | None) -> str:
+    return raw_id if raw_id else f"call_{uuid.uuid4().hex[:16]}"
 
-    def __init__(self, thinking: bool = True) -> None:
-        super().__init__()
-        self.thinking = thinking
+
+class DeepSeekConverter(ProviderConverter):
+    """DeepSeek-compatible converter.
+
+    Strategy (aligned with AgentScope):
+    - Process each Message independently.
+    - tool_result blocks are emitted immediately as separate "tool" role messages.
+    - tool_use blocks are collected into tool_calls on the same assistant message.
+    - text / thinking are joined into content / reasoning_content.
+    - A message is kept if it has non-empty content OR tool_calls.
+    """
 
     def to_provider(self, messages: list[Message], tools: list[ToolSchema] | None = None):
-        provider_msgs = []
-        for m in messages:
-            text_blocks = [b for b in m.content if b.type == "text"]
-            thinking_blocks = [b for b in m.content if b.type == "thinking"]
-            tool_use_blocks = [b for b in m.content if b.type == "tool_use"]
+        provider_msgs: list[dict] = []
 
-            # Tool results go DIRECTLY to message list as separate messages
-            for b in m.content:
-                if b.type == "tool_result":
-                    output = b.output or ""
+        for m in messages:
+            content_blocks: list[dict] = []
+            reasoning_content_blocks: list[dict] = []
+            tool_calls: list[dict] = []
+
+            for block in m.content:
+                if block.type == "text":
+                    content_blocks.append({"text": block.text or ""})
+                elif block.type == "thinking":
+                    reasoning_content_blocks.append({"thinking": block.thinking or ""})
+                elif block.type == "tool_use":
+                    tool_calls.append({
+                        "id": _ensure_tool_id(block.id),
+                        "type": "function",
+                        "function": {
+                            "name": block.name or "",
+                            "arguments": json.dumps(
+                                block.input or {},
+                                ensure_ascii=False,
+                            ),
+                        },
+                    })
+                elif block.type == "tool_result":
                     provider_msgs.append({
                         "role": "tool",
-                        "tool_call_id": b.tool_call_id or "",
-                        "content": str(output),
+                        "tool_call_id": _ensure_tool_id(block.tool_call_id),
+                        "content": str(block.output or ""),
+                        "name": block.name or "",
                     })
 
-            # Build content from text blocks
-            content_text = "\n".join(b.text or "" for b in text_blocks) if text_blocks else ""
-            reasoning_text = "\n".join(b.thinking or "" for b in thinking_blocks) if thinking_blocks else None
+            content_msg = "\n".join(
+                c.get("text", "") for c in content_blocks
+            )
+            reasoning_msg = "\n".join(
+                r.get("thinking", "") for r in reasoning_content_blocks
+            )
 
-            # Build tool_calls
-            tool_calls = None
-            if tool_use_blocks:
-                tool_calls = [{
-                    "id": b.id or "",
-                    "type": "function",
-                    "function": {
-                        "name": b.name or "",
-                        "arguments": json.dumps(b.input or {}, ensure_ascii=False),
-                    }
-                } for b in tool_use_blocks]
+            msg_deepseek: dict = {
+                "role": m.role,
+                "content": content_msg or None,
+            }
 
-            # Assemble message
-            msg: dict = {"role": m.role, "content": content_text or ""}
-            if reasoning_text:
-                msg["reasoning_content"] = reasoning_text
-            elif tool_calls:
-                # DeepSeek requires reasoning_content when tool_calls exist
-                msg["reasoning_content"] = ""
+            if reasoning_msg:
+                msg_deepseek["reasoning_content"] = reasoning_msg
+
             if tool_calls:
-                msg["tool_calls"] = tool_calls
+                msg_deepseek["tool_calls"] = tool_calls
+                # DeepSeek requires reasoning_content when tool_calls exist
+                if "reasoning_content" not in msg_deepseek:
+                    msg_deepseek["reasoning_content"] = ""
 
-            if msg.get("content") or msg.get("tool_calls"):
-                provider_msgs.append(msg)
-            if msg.get("reasoning_content") and self.thinking:
-                provider_msgs.append(msg)
+            # Keep the message if it has content or tool_calls.
+            # Pure tool_result messages are already emitted above and will
+            # naturally drop here because content is None and tool_calls is empty.
+            if msg_deepseek["content"] or msg_deepseek.get("tool_calls"):
+                provider_msgs.append(msg_deepseek)
 
         provider_tools = None
         if tools:
@@ -75,12 +95,20 @@ class DeepSeekConverter(ProviderConverter):
                     else:
                         provider_tools.append({
                             "type": "function",
-                            "function": {"name": t.get("name",""), "description": t.get("description",""), "parameters": t.get("parameters",{})}
+                            "function": {
+                                "name": t.get("name", ""),
+                                "description": t.get("description", ""),
+                                "parameters": t.get("parameters", {}),
+                            }
                         })
                 else:
                     provider_tools.append({
                         "type": "function",
-                        "function": {"name": t.name, "description": t.description, "parameters": t.parameters}
+                        "function": {
+                            "name": t.name,
+                            "description": t.description,
+                            "parameters": t.parameters,
+                        }
                     })
 
         return provider_msgs, provider_tools
@@ -88,22 +116,26 @@ class DeepSeekConverter(ProviderConverter):
     def from_provider(self, response: dict) -> LlmResponse:
         choice = response.get("choices", [{}])[0]
         msg = choice.get("message", {})
-        content = []
+        content: list[ContentBlock] = []
 
         reasoning = msg.get("reasoning_content", "")
         if reasoning:
             content.append(ContentBlock(type="thinking", thinking=reasoning))
-        
-        content.append(ContentBlock(type="text", text=msg["content"]))
 
-        tool_calls = []
+        text = msg.get("content") or ""
+        content.append(ContentBlock(type="text", text=text))
+
+        tool_calls: list[ToolCall] = []
         for tc in msg.get("tool_calls", []):
             fn = tc.get("function", {})
             try:
                 args = json.loads(fn.get("arguments", "{}")) if isinstance(fn.get("arguments", ""), str) else fn.get("arguments", {})
             except (json.JSONDecodeError, TypeError):
                 args = {}
-            tool_calls.append(ToolCall(id=tc.get("id", ""), name=fn.get("name", ""), arguments=args))
+            tc_id = _ensure_tool_id(tc.get("id"))
+            tool_calls.append(ToolCall(id=tc_id, name=fn.get("name", ""), arguments=args))
+            # Do NOT add tool_use to content blocks — conscious.py already
+            # appends them from response.tool_calls separately.
 
         return LlmResponse(content=content, tool_calls=tool_calls)
 
@@ -114,13 +146,17 @@ class DeepSeekClient(LlmClient):
         self.base_url = config.base_url or "https://api.deepseek.com"
         self._api_key = config.api_key
         self._max_tokens = config.max_tokens
+        self._reasoning_effort = config.reasoning_effort
         self._converter = DeepSeekConverter()
 
     async def chat(self, messages: list[Message], tools: list[ToolSchema] | None = None) -> LlmResponse:
         provider_msgs, provider_tools = self._converter.to_provider(messages, tools)
         body: dict = {
-            "model": self.model, "messages": provider_msgs,
-            "max_tokens": self._max_tokens, "thinking": {"type": "enabled"},
+            "model": self.model,
+            "messages": provider_msgs,
+            "max_tokens": self._max_tokens,
+            "reasoning_effort": self._reasoning_effort,
+            "thinking": {"type": "enabled"},
         }
         if provider_tools:
             body["tools"] = provider_tools
@@ -132,10 +168,9 @@ class DeepSeekClient(LlmClient):
                 json=body)
             if resp.status_code >= 400:
                 print(f"[DeepSeek] {resp.status_code}: {resp.text[:200]}")
-                # Print tool_calls messages and their following messages
                 for i, m in enumerate(provider_msgs):
                     if m.get("tool_calls"):
-                        next_msg = provider_msgs[i+1] if i+1 < len(provider_msgs) else {}
+                        next_msg = provider_msgs[i + 1] if i + 1 < len(provider_msgs) else {}
                         print(f"[DeepSeek] msg[{i}]: tool_calls ids={[tc['id'] for tc in m['tool_calls']]} next_role={next_msg.get('role')} next_tcid={next_msg.get('tool_call_id')}")
             resp.raise_for_status()
             return self._converter.from_provider(resp.json())

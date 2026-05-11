@@ -24,6 +24,8 @@ class LLMConfig(BaseSettings):
     base_url: str = ""
     max_tokens: int = 4096
     temperature: float = 0.0
+    # DeepSeek reasoning effort: "high" (default) or "max" (complex agent tasks)
+    reasoning_effort: str = "high"
 
 
 class Neo4jConfig(BaseSettings):

@@ -120,24 +120,7 @@ class QQAdapter:
             await self._send_reply(message, "已停止", user_id, is_group)
             return
 
-        msg_count = 0
-        last_send_time = 0
-
-        async def _throttled_send(text_piece: str) -> bool:
-            nonlocal msg_count, last_send_time
-            if msg_count >= 9 or not text_piece.strip():
-                return False
-            now = time.time()
-            if msg_count > 0 and now - last_send_time < 6 * msg_count:
-                await asyncio.sleep(6 * msg_count - (now - last_send_time))
-                now = time.time()
-            try:
-                await self._send_reply(message, text_piece, user_id, is_group)
-                msg_count += 1
-                last_send_time = now
-                return True
-            except Exception:
-                return False
+        total_msg_count = 0
 
         async def on_event(event):
             if should_skip_for_platform(event, "qq"):
@@ -145,8 +128,30 @@ class QQAdapter:
             txt = format_event(event, "qq")
             if not txt:
                 return
-            for i in range(0, len(txt), 1500):
-                piece = txt[i:i + 1500]
+
+            nonlocal total_msg_count
+            msg_count = 0
+            last_send_time = 0
+
+            async def _throttled_send(text_piece: str) -> bool:
+                nonlocal msg_count, last_send_time, total_msg_count
+                if msg_count >= 20 or not text_piece.strip():
+                    return False
+                now = time.time()
+                if msg_count > 0 and now - last_send_time < 2:
+                    await asyncio.sleep(2 - (now - last_send_time))
+                    now = time.time()
+                try:
+                    await self._send_reply(message, text_piece, user_id, is_group)
+                    msg_count += 1
+                    total_msg_count += 1
+                    last_send_time = now
+                    return True
+                except Exception:
+                    return False
+
+            for i in range(0, len(txt), 2500):
+                piece = txt[i:i + 2500]
                 await _throttled_send(piece)
 
         await self._engine.run(content, on_event=on_event)

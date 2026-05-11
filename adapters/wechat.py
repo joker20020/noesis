@@ -295,23 +295,7 @@ class WeChatAdapter:
             await self._send_text(uid, "会话已重置", ctx); return
 
         # Run agent with real-time event streaming
-        msg_count = 0
-        last_send_time = 0
-
-        async def _throttled_send(text_piece: str, use_ctx: bool = True) -> bool:
-            nonlocal msg_count, last_send_time
-            if msg_count >= 9 or not text_piece.strip():
-                return False
-            now = time.time()
-            if msg_count > 0 and now - last_send_time < 6 * msg_count:
-                await asyncio.sleep(6 * msg_count - (now - last_send_time))
-                now = time.time()
-            d = await self._send_text(uid, text_piece, ctx if use_ctx and msg_count == 0 else "")
-            if d.get("ret", 0) == 0:
-                msg_count += 1
-                last_send_time = now
-                return True
-            return False
+        total_msg_count = 0
 
         async def on_event(event):
             if should_skip_for_platform(event, "wechat"):
@@ -319,12 +303,33 @@ class WeChatAdapter:
             txt = format_event(event, "wechat")
             if not txt:
                 return
-            for i in range(0, len(txt), 2000):
-                piece = txt[i:i + 2000]
+
+            nonlocal total_msg_count
+            msg_count = 0
+            last_send_time = 0
+
+            async def _throttled_send(text_piece: str, use_ctx: bool = True) -> bool:
+                nonlocal msg_count, last_send_time, total_msg_count
+                if msg_count >= 20 or not text_piece.strip():
+                    return False
+                now = time.time()
+                if msg_count > 0 and now - last_send_time < 2:
+                    await asyncio.sleep(2 - (now - last_send_time))
+                    now = time.time()
+                d = await self._send_text(uid, text_piece, ctx if use_ctx and msg_count == 0 else "")
+                if d.get("ret", 0) == 0:
+                    msg_count += 1
+                    total_msg_count += 1
+                    last_send_time = now
+                    return True
+                return False
+
+            for i in range(0, len(txt), 3000):
+                piece = txt[i:i + 3000]
                 await _throttled_send(piece, use_ctx=(i == 0))
 
         result = await self._engine.run(text, on_event=on_event)
-        print(f"[WeChat] Reply streamed ({msg_count} msgs)")
+        print(f"[WeChat] Reply streamed ({total_msg_count} msgs)")
 
         # Send files if referenced in final result
         for m in re.finditer(r'\[FILE:([^\]]+)\]', result):

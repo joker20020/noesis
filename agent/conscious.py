@@ -53,7 +53,32 @@ def _dict_to_message(d: dict) -> Message:
 
 
 def _msg_to_dict(m: Message) -> dict:
-    """Serialize Message to dict — tool_use + tool_result paired to survive compression."""
+    """Serialize Message to dict — tool_use + tool_result paired to survive compression.
+
+    For messages containing tool blocks we use JSON so that tool_call_id and id
+    survive round-trips (required by DeepSeek / OpenAI).  Plain text/thinking
+    messages keep the compact text format so stage2_compress_tags still works.
+    """
+    has_tools = any(b.type in ("tool_use", "tool_result") for b in m.content)
+    if has_tools:
+        blocks = []
+        for b in m.content:
+            d: dict = {"type": b.type}
+            if b.type == "thinking":
+                d["thinking"] = b.thinking or ""
+            elif b.type == "text":
+                d["text"] = b.text or ""
+            elif b.type == "tool_use":
+                d["id"] = b.id or ""
+                d["name"] = b.name or ""
+                d["input"] = b.input or {}
+            elif b.type == "tool_result":
+                d["tool_call_id"] = b.tool_call_id or ""
+                d["name"] = b.name or ""
+                d["output"] = b.output or ""
+            blocks.append(d)
+        return {"role": m.role, "content": json.dumps(blocks, ensure_ascii=False)}
+
     texts = []
     pending_tool = None  # tool_use waiting for its result
     for b in m.content:
@@ -107,9 +132,15 @@ class ConsciousLoop:
         
         # --- Emit structured intermediate events ---
         async def _emit(event: dict):
-            if on_event:
+            if not on_event:
+                return
+            try:
                 await on_event(event)
-        
+            except Exception as e:
+                # Isolate adapter send failures from agent loop.
+                # Prevents a single network blip / rate-limit from killing the whole run.
+                print(f"[ConsciousLoop] _emit failed (event_type={event.get('type')}): {e}")
+
         is_ephemeral = self.session_id.startswith("explore_")
 
         if not is_ephemeral:
