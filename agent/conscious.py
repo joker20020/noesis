@@ -89,6 +89,7 @@ class ConsciousLoop:
         self._workspace = Path(workspace_dir or config.workspace_dir)
         self._workspace.mkdir(parents=True, exist_ok=True)
         self._history: list[Message] = []
+        self._step_ids: list[str | None] = []  # Parallel to _history: DB ExecutionStep.id per message
         self._turn_count = 0
         self._step_index = 0
         self._last_step_id: str | None = None
@@ -133,24 +134,36 @@ class ConsciousLoop:
             self._last_step_id = last_rec[0].get("id")
 
         if not history and self._turn_count > 0 and not self._history:
-            history = await self._load_history_from_db()
+            history, self._step_ids = await self._load_history_from_db()
         if history:
             total = len(history)
             if total > MAX_HISTORY_MSGS:
-                older = history[:total - MAX_HISTORY_MSGS]; 
+                older = history[:total - MAX_HISTORY_MSGS]
                 recent = history[total - MAX_HISTORY_MSGS:]
+                if not is_ephemeral:
+                    await self._mark_steps_compressed(self._step_ids[:total - MAX_HISTORY_MSGS])
+                self._step_ids = self._step_ids[total - MAX_HISTORY_MSGS:]
                 self._history_summary = self._summarize_history([_msg_to_dict(m) for m in older])
                 self._history.extend(recent)
             else:
                 self._history.extend(history)
             raw = [_msg_to_dict(m) for m in self._history]
             if self._compression._char_count(raw) > self._compression.budget:
+                before = len(self._history)
                 self._history = [_dict_to_message(m) for m in self._compression.stage3_evict(raw)]
+                evicted = before - len(self._history)
+                if evicted > 0:
+                    if not is_ephemeral:
+                        await self._mark_steps_compressed(self._step_ids[:evicted])
+                    self._step_ids = self._step_ids[evicted:]
 
         self._aborted = False
         self._history.append(Message.text_msg("user", user_input))
         if not is_ephemeral:
-            await self._log_user_step(user_input)
+            step_id = await self._log_user_step(user_input)
+            self._step_ids.append(step_id)
+        else:
+            self._step_ids.append(None)
 
 
         for round_idx in range(max_rounds):
@@ -164,8 +177,17 @@ class ConsciousLoop:
                 {"sid": self.session_id, "tc": self._turn_count})
 
             if self._turn_count > 1 and self._turn_count % 5 == 0:
-                raw = [_msg_to_dict(m) for m in self._history]
-                compressed = self._compression.stage2_compress_tags(raw)
+                raw_before = [_msg_to_dict(m) for m in self._history]
+                compressed = self._compression.stage2_compress_tags(raw_before)
+                if not is_ephemeral:
+                    for i in range(len(compressed)):
+                        if i < len(self._step_ids) and self._step_ids[i]:
+                            old_content = raw_before[i].get("content", "")
+                            new_content = compressed[i].get("content", "")
+                            if old_content != new_content:
+                                await self._neo4j.run(
+                                    "MATCH (step:ExecutionStep {id: $id}) SET step.content = $content",
+                                    {"id": self._step_ids[i], "content": new_content})
                 self._history = [_dict_to_message(m) for m in compressed]
 
             total_s = len(self._last_20_summaries)
@@ -202,7 +224,10 @@ class ConsciousLoop:
                     display = "".join(b.text or b.thinking or "" for b in response.content)
                     await on_event({"type": "message", "content": display})
                 if not is_ephemeral and round_blocks:
-                    await self._create_step("noesis", "assistant", round_blocks)
+                    step_id = await self._create_step("noesis", "assistant", round_blocks)
+                    self._step_ids.append(step_id)
+                else:
+                    self._step_ids.append(None)
 
             # Task complete
             if not response.tool_calls:
@@ -213,7 +238,10 @@ class ConsciousLoop:
                     elif b.type == "text":
                         round_blocks.append({"type": "text", "text": b.text or ""})
                 if not is_ephemeral and round_blocks:
-                    await self._create_step("noesis", "assistant", round_blocks)
+                    step_id = await self._create_step("noesis", "assistant", round_blocks)
+                    self._step_ids.append(step_id)
+                else:
+                    self._step_ids.append(None)
                 display = "".join(b.text or "" for b in response.content if b.type == "text") or "Task completed."
                 if on_event:
                     await on_event({"type": "message", "content": display})
@@ -229,24 +257,35 @@ class ConsciousLoop:
                 result = await self._dispatcher.dispatch(DispatchToolCall(id=tc.id, name=tc.name, arguments=tc.arguments))
                 truncated = self._compression.stage1_tool_output(tc.name, result.output)
 
-                await self._create_step("noesis", "assistant", 
-                                        [{"type": "tool_use", "id": tc.id, "name": tc.name, "input": tc.arguments}])
-                await self._create_step("noesis", "system", 
-                                        [{"type": "tool_result", "tool_call_id": tc.id, "name": tc.name, "output": truncated}])
-                
+                if not is_ephemeral:
+                    step_id_tool = await self._create_step("noesis", "assistant",
+                        [{"type": "tool_use", "id": tc.id, "name": tc.name, "input": tc.arguments}])
+                    step_id_result = await self._create_step("noesis", "system",
+                        [{"type": "tool_result", "tool_call_id": tc.id, "name": tc.name, "output": truncated}])
+                else:
+                    step_id_tool = None
+                    step_id_result = None
 
                 # Store tool_use + tool_result in ONE Message so they stay paired
                 self._history.append(Message(role="assistant", content=[
                     ContentBlock(type="tool_use", id=tc.id, name=tc.name, input=tc.arguments)]))
+                self._step_ids.append(step_id_tool)
                 self._history.append(Message(role="system", content=[
                     ContentBlock(type="tool_result", tool_call_id=tc.id, name=tc.name, output=truncated)]))
+                self._step_ids.append(step_id_result)
 
                 if on_event:
                     await on_event({"type": "tool_result", "name": tc.name, "content": truncated})
 
             raw = [_msg_to_dict(m) for m in self._history]
             if self._compression._char_count(raw) > self._compression.budget:
+                before = len(self._history)
                 self._history = [_dict_to_message(m) for m in self._compression.stage3_evict(raw)]
+                evicted = before - len(self._history)
+                if evicted > 0:
+                    if not is_ephemeral:
+                        await self._mark_steps_compressed(self._step_ids[:evicted])
+                    self._step_ids = self._step_ids[evicted:]
             text = ""
             if response.content:
                 text = "\n".join(b.text or "" for b in response.content)
@@ -265,15 +304,17 @@ class ConsciousLoop:
         user = [m for m in older if m.get("role") == "user"]
         return f"[Earlier: {len(user)} user msgs, {len(older)-len(user)} assistant]"
 
-    async def _load_history_from_db(self) -> list[Message]:
+    async def _load_history_from_db(self) -> tuple[list[Message], list[str]]:
         records = await self._neo4j.run(
             """MATCH (s:Session {session_id: $sid})-[:HAS_STEP]->(first:ExecutionStep)
                MATCH (first)-[:NEXT*0..]->(step:ExecutionStep)
                RETURN DISTINCT step ORDER BY step.step_index""",
             {"sid": self.session_id})
         msgs: list[Message] = []
+        step_ids: list[str] = []
         for r in records:
-            step = r["step"]; 
+            step = r["step"];
+            step_ids.append(step.get("id", ""))
             role = step.get("role", "assistant")
             content = step.get("content", "")
             if isinstance(content, str):
@@ -284,7 +325,15 @@ class ConsciousLoop:
                         for b in blocks]))
                 except Exception:
                     msgs.append(Message.text_msg(role, str(content)[:500]))
-        return msgs
+        return msgs, step_ids
+
+    async def _mark_steps_compressed(self, step_ids: list[str | None]):
+        """Mark ExecutionStep nodes as status='compressed' in Neo4j."""
+        for sid in step_ids:
+            if sid:
+                await self._neo4j.run(
+                    "MATCH (step:ExecutionStep {id: $id}) SET step.status = 'compressed'",
+                    {"id": sid})
 
     async def _load_l1_skills(self):
         skills = await self._index.search(top_k=30)
@@ -337,4 +386,4 @@ class ConsciousLoop:
         return sid
 
     async def _log_user_step(self, text):
-        await self._create_step("user", "user", [{"type": "text", "text": text}])
+        return await self._create_step("user", "user", [{"type": "text", "text": text}])

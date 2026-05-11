@@ -55,4 +55,5 @@ class CompressionPipeline:
 
     def _char_count(self, messages: list[dict]) -> int:
         import json
-        return sum(len(json.dumps(m)) for m in messages)
+        count = sum(len(json.dumps(m)) for m in messages)
+        return count

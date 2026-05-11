@@ -77,6 +77,8 @@ class SubconsciousLoop:
             print(f"  [Belief] Resolved {len(conflicts)} contradiction(s)")
 
         # Step 4: Lifecycle
+        await self._lifecycle.evict_compressed_steps()
+        print(f"  [Lifecycle] Evicted compressed steps")
         await self._lifecycle.decay_all()
         await self._lifecycle.forget_stale()
         stats = await self._lifecycle.get_stats()

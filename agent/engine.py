@@ -69,7 +69,7 @@ class AgentEngine:
     async def run(self, user_input: str,
                   on_event=None) -> str:
         self._subconscious.touch()
-        return await self._loop.run(user_input, on_event=on_event)
+        return await self._loop.run(user_input, on_event=on_event, max_rounds=30)
 
     def abort(self):
         """Send interrupt signal to stop current agent response."""

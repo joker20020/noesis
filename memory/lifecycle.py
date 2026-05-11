@@ -64,6 +64,112 @@ class MemoryLifecycle:
                DETACH DELETE p""",
         )
 
+    async def evict_compressed_steps(self):
+        """Evict compressed ExecutionSteps. If a completed DistillationRequest
+        exists, only evict steps created before its creation time (knowledge was
+        extracted). If no DistillationRequest exists at all, evict all compressed
+        steps immediately. Rewires Session, renumbers turns, deletes nodes."""
+        # 1. Find cutoff from latest completed DistillationRequest
+        records = await self._neo4j.run(
+            """MATCH (d:DistillationRequest {status: 'completed'})
+               RETURN d.created_at AS created_at
+               ORDER BY d.processed_at DESC LIMIT 1""")
+        has_distillation = bool(records and records[0].get("created_at"))
+        cutoff = records[0]["created_at"] if has_distillation else None
+
+        # Also check if ANY DistillationRequest exists at all
+        if not has_distillation:
+            any_dr = await self._neo4j.run(
+                "MATCH (d:DistillationRequest) RETURN count(d) AS c")
+            any_exists = any_dr and any_dr[0]["c"] > 0
+            if any_exists:
+                # DRs exist but none completed yet — wait for completion
+                return
+
+        # 2. Find sessions with compressed steps
+        if has_distillation:
+            sessions = await self._neo4j.run(
+                """MATCH (s:Session)-[:HAS_STEP]->(:ExecutionStep)-[:NEXT*0..]->(step:ExecutionStep)
+                   WHERE step.status = 'compressed' AND step.timestamp <= $cutoff
+                   RETURN DISTINCT s.session_id AS sid""",
+                {"cutoff": cutoff})
+        else:
+            sessions = await self._neo4j.run(
+                """MATCH (s:Session)-[:HAS_STEP]->(:ExecutionStep)-[:NEXT*0..]->(step:ExecutionStep)
+                   WHERE step.status = 'compressed'
+                   RETURN DISTINCT s.session_id AS sid""")
+
+        for row in sessions:
+            sid = row["sid"]
+            # 3. Find first non-compressed step (new head)
+            new_head = await self._neo4j.run(
+                """MATCH (s:Session {session_id: $sid})-[:HAS_STEP]->(first:ExecutionStep)
+                   MATCH (first)-[:NEXT*0..]->(step:ExecutionStep)
+                   WHERE coalesce(step.status, '') <> 'compressed'
+                   RETURN step.id AS id, step.step_index AS idx
+                   ORDER BY step.step_index ASC LIMIT 1""",
+                {"sid": sid})
+
+            # 4. Delete compressed steps
+            if has_distillation:
+                await self._neo4j.run(
+                    """MATCH (s:Session {session_id: $sid})
+                       OPTIONAL MATCH (s)-[:HAS_STEP]->(first:ExecutionStep)
+                       OPTIONAL MATCH (first)-[:NEXT*0..]->(step:ExecutionStep)
+                       WHERE step.status = 'compressed' AND step.timestamp <= $cutoff
+                       DETACH DELETE step""",
+                    {"sid": sid, "cutoff": cutoff})
+            else:
+                await self._neo4j.run(
+                    """MATCH (s:Session {session_id: $sid})
+                       OPTIONAL MATCH (s)-[:HAS_STEP]->(first:ExecutionStep)
+                       OPTIONAL MATCH (first)-[:NEXT*0..]->(step:ExecutionStep)
+                       WHERE step.status = 'compressed'
+                       DETACH DELETE step""",
+                    {"sid": sid})
+
+            if new_head:
+                hid = new_head[0]["id"]
+                # 5. Rewire session to new head
+                await self._neo4j.run(
+                    """MATCH (s:Session {session_id: $sid})
+                       OPTIONAL MATCH (s)-[r:HAS_STEP]->()
+                       DELETE r
+                       WITH s
+                       MATCH (step:ExecutionStep {id: $hid})
+                       CREATE (s)-[:HAS_STEP]->(step)""",
+                    {"sid": sid, "hid": hid})
+
+                # 6. Renumber turns for remaining steps
+                remaining = await self._neo4j.run(
+                    """MATCH (s:Session {session_id: $sid})-[:HAS_STEP]->(first:ExecutionStep)
+                       MATCH (first)-[:NEXT*0..]->(step:ExecutionStep)
+                       RETURN min(step.turn) AS min_turn, max(step.turn) AS max_turn""",
+                    {"sid": sid})
+                if remaining and remaining[0].get("min_turn"):
+                    min_t = remaining[0]["min_turn"]
+                    max_t = remaining[0]["max_turn"]
+                    offset = min_t - 1
+                    if offset > 0:
+                        await self._neo4j.run(
+                            """MATCH (s:Session {session_id: $sid})-[:HAS_STEP]->(first:ExecutionStep)
+                               MATCH (first)-[:NEXT*0..]->(step:ExecutionStep)
+                               SET step.turn = step.turn - $offset""",
+                            {"sid": sid, "offset": offset})
+                    # 7. Update session turn_count
+                    await self._neo4j.run(
+                        """MATCH (s:Session {session_id: $sid})
+                           SET s.turn_count = $tc""",
+                        {"sid": sid, "tc": max_t - offset})
+            else:
+                # No non-compressed steps remain — clear the session HAS_STEP
+                await self._neo4j.run(
+                    """MATCH (s:Session {session_id: $sid})
+                       OPTIONAL MATCH (s)-[r:HAS_STEP]->()
+                       DELETE r
+                       SET s.turn_count = 0""",
+                    {"sid": sid})
+
     async def get_stats(self) -> dict:
         skill = await self._neo4j.run(
             "MATCH (s:Skill) WHERE s.stage <> 'DEPRECATED' RETURN count(s) AS cnt"
