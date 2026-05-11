@@ -109,19 +109,19 @@ class FileReadTool(BaseTool):
                         res = list(itertools.islice(stream, count))
                         return ToolResult(
                             call_id=call.id, name="file_read", success=False,
-                            output=fallback_msg + self._format_lines(res, show_linenos, path, start, count),
+                            output=fallback_msg + self._format_lines(res, show_linenos, path),
                             error=f"Keyword '{keyword}' not found after line {start}"
                         )
                 else:
                     res = list(itertools.islice(stream, count))
 
-                output = self._format_lines(res, show_linenos, path, start, count)
+                output = self._format_lines(res, show_linenos, path)
                 _read_dirs.add(str(path.parent.resolve()))
                 return ToolResult(call_id=call.id, name="file_read", success=True, output=output)
         except Exception as e:
             return ToolResult(call_id=call.id, name="file_read", success=False, output="", error=str(e))
 
-    def _format_lines(self, res: list[tuple[int, str]], show_linenos: bool, path: Path, start: int, count: int) -> str:
+    def _format_lines(self, res: list[tuple[int, str]], show_linenos: bool, path: Path) -> str:
         realcnt = len(res)
         if realcnt == 0:
             return "(empty file or range beyond end)"
