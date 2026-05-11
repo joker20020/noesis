@@ -341,7 +341,7 @@ class ConsciousLoop:
             self._l1_skills = "(no skills registered yet — use skill_manage to create one)"; return
         lines = [f"{len(skills)} skills available:"]
         for s in skills:
-            lines.append(f"  - {s.skill_id} [{s.stage}] v{s.version} used:{s.usage_count} — {s.name}")
+            lines.append(f"  - {s.skill_id} [{s.stage}] v{s.version} used:{s.usage_count} — {s.name} - dir:{s.dir}")
         self._l1_skills = "\n".join(lines)
 
     async def _get_key_info(self) -> str:
