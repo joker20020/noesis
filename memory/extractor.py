@@ -70,8 +70,15 @@ class EntityExtractor:
         query = """MATCH (s:Session {session_id: $sid})-[:HAS_STEP]->(first:ExecutionStep)
                    MATCH (first)-[:NEXT*0..]->(step:ExecutionStep)"""
         params: dict = {"sid": session_id}
+        conditions = []
         if since:
-            query += " WHERE step.timestamp >= $since"; params["since"] = since
+            conditions.append("step.timestamp >= $since")
+            params["since"] = since
+        if current_ts:
+            conditions.append("step.timestamp <= $until")
+            params["until"] = current_ts
+        if conditions:
+            query += " WHERE " + " AND ".join(conditions)
         query += " RETURN step.content AS content ORDER BY step.step_index LIMIT 30"
         records = await self._neo4j.run(query, params)
         lines = []
