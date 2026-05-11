@@ -5,33 +5,40 @@ from memory.neo4j_client import Neo4jClient
 from llm.base import LlmClient, Message
 
 
-COMPILE_PROMPT = """Generate executable Python code from this SOP. You must output TWO files separated by `===TEST===`.
-
-File 1 — scripts/main.py:
-- Implement the SOP steps as a runnable Python script
-- Use subprocess or appropriate libraries
-- Include proper error handling
-- Add argparse for any configurable parameters
-- Print progress as each step completes
-
-File 2 — scripts/test_main.py:
-- Test that main.py runs without errors
-- Verify basic output expectations
-- Use subprocess to run main.py and check exit code
+COMPILE_PROMPT = """Generate executable Python code from this SOP. Output TWO files separated by `===TEST===`.
 
 SOP:
 {sop_content}
 
-Output format:
+## Code Requirements (apply to main.py)
+1. **Argument validation**: Use argparse with type checking; reject invalid inputs.
+2. **Error handling**: Wrap external calls in try/except; log errors with context.
+3. **Timeout**: All subprocess calls must have timeout (default 30s).
+4. **Progress logging**: Print step name before execution; print completion status.
+5. **Idempotency**: Where possible, check if step already done before repeating.
+6. **Return codes**: Exit 0 on success, 1 on failure, 2 on partial success.
+
+## Test Requirements (apply to test_main.py)
+1. **Happy path**: Verify main.py runs with valid arguments.
+2. **Error path**: Verify graceful failure with invalid arguments/missing files.
+3. **Boundary**: Verify behavior at edge cases (empty input, max length, special chars).
+4. **Mock external calls**: Use unittest.mock for network/subprocess to avoid side effects.
+
+## Output Format
 ```python
-# main.py content here
-```
-===TEST===
-```python
-# test_main.py content here
+# scripts/main.py
+...
 ```
 
-Output ONLY the code blocks, no other text."""
+===TEST===
+
+```python
+# scripts/test_main.py
+...
+```
+
+Output ONLY the two code blocks, no other text.
+"""
 
 
 class SopCompiler:
