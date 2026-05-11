@@ -77,13 +77,14 @@ def _msg_to_dict(m: Message) -> dict:
 class ConsciousLoop:
     def __init__(self, llm_client: LlmClient, dispatcher: ToolDispatcher,
                  neo4j: Neo4jClient, config: Config,
-                 session_id: str | None = None, workspace_dir: str | None = None):
+                 session_id: str | None = None, workspace_dir: str | None = None,
+                 context_builder: ContextBuilder | None = None):
         self._llm = llm_client
         self._dispatcher = dispatcher
         self._neo4j = neo4j
         self._config = config
         self._index = L1Index(neo4j)
-        self._context_builder = ContextBuilder(dispatcher)
+        self._context_builder = context_builder or ContextBuilder(dispatcher)
         self._compression = CompressionPipeline(context_budget_chars=config.context_budget_tokens * 3)
         self.session_id = session_id or f"sess_{uuid.uuid4().hex[:12]}"
         self._workspace = Path(workspace_dir or config.workspace_dir)
@@ -207,9 +208,14 @@ class ConsciousLoop:
                 if preload:
                     key_info = preload + "\n" + key_info
 
-            system = self._context_builder.build_system_prompt(
-                self._turn_count, recent_text or "(none)", key_info,
-                self._history_summary, self.session_id, self._l1_skills)
+            if is_ephemeral:
+                system = self._context_builder.build_exploration_prompt(
+                    self._turn_count, recent_text or "(none)", key_info,
+                    self._history_summary, self.session_id)
+            else:
+                system = self._context_builder.build_system_prompt(
+                    self._turn_count, recent_text or "(none)", key_info,
+                    self._history_summary, self.session_id, self._l1_skills)
             messages = [Message.text_msg("system", system)]
             messages.extend(self._history)
 

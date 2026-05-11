@@ -23,15 +23,36 @@ class ExplorationExecutor:
             session_id=session_id, workspace_dir=str(workspace),
         )
 
+        # Build a structured exploration prompt that includes goal, method, and success criteria
+        goal = task.get("goal", "Explore and improve agent capabilities")
+        method = task.get("method", "Use available tools to investigate and record findings")
+        success_criteria = task.get("success_criteria", "Register at least one useful discovery")
+        task_prompt = task.get("prompt", "")
+
+        exploration_input = (
+            f"## Exploration Task\n\n"
+            f"**Goal**: {goal}\n\n"
+            f"**Method**: {method}\n\n"
+            f"**Success Criteria**: {success_criteria}\n\n"
+            f"{task_prompt}\n\n"
+            f"---\n\n"
+            f"Begin exploration now. State your initial hypothesis and first experiment."
+        )
+
         try:
-            result = await loop.run(task["prompt"], max_rounds=max_rounds)
+            result = await loop.run(exploration_input, max_rounds=max_rounds)
             status = "completed"
         except Exception as e:
             result = f"Exploration failed: {e}"
             status = "failed"
 
         return {
-            "session_id": session_id, "task_type": task.get("type"),
-            "category": task.get("category", ""), "status": status,
-            "result": result[:1000],
+            "session_id": session_id,
+            "task_type": task.get("type"),
+            "category": task.get("category", ""),
+            "goal": goal,
+            "method": method,
+            "success_criteria": success_criteria,
+            "status": status,
+            "result": result[:2000],
         }

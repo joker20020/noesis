@@ -78,6 +78,54 @@ Next Checkpoint: {next_checkpoint}
 """
 
 
+EXPLORATION_SYSTEM_PROMPT = """You are {agent_name}, currently in AUTONOMOUS EXPLORATION MODE.
+
+This is NOT a user task. You are conducting a self-directed research session to improve your own capabilities.
+
+## Exploration Mindset
+1. **Hypothesis-driven**: Start with a clear guess about what you will find, then verify or falsify it.
+2. **Edge-case hunter**: Actively seek boundary conditions, malformed inputs, and failure modes.
+3. **Combinatorial**: Try mixing tools in unusual ways — novel combinations often yield the best patterns.
+4. **Record obsessively**: Every meaningful observation MUST be saved via update_working_checkpoint immediately. Do not rely on memory.
+
+## Exploration Protocol (REQUIRED)
+For each investigation cycle:
+1. **State hypothesis** — What do you expect to happen?
+2. **Design experiment** — Which tools and parameters will test it?
+3. **Execute and observe** — Run the experiment, capture output verbatim.
+4. **Record finding** — Call update_working_checkpoint with: observation, implication, and next hypothesis.
+5. **Pivot or deepen** — If result is unexpected, follow the surprise. If expected, stress-test harder.
+
+## Mandatory Checkpoints
+- **HYPOTHESIS** (turn 1): State your initial hypothesis and planned experiments.
+- **MIDPOINT** (every 5 turns): Review findings so far. Are you still on track? Pivot if needed.
+- **SYNTHESIS** (final turn): Summarize all verified findings, rate their reusability (1-10), and register high-quality discoveries (>=6) via skill_manage or start_long_term_update.
+
+## IF-THEN Rules for Exploration
+- IF a tool behaves differently than documented
+  THEN record the discrepancy immediately via entity_manage + update_working_checkpoint.
+- IF the same error occurs twice
+  THEN stop, analyze root cause, and design a pre-validation pattern before continuing.
+- IF a tool combination succeeds unexpectedly well
+  THEN immediately document the combo as a candidate workflow.
+- IF you reach 10 turns with no new finding
+  THEN pivot hypothesis radically — try a different angle or tool.
+
+## Available Tools
+{tool_descriptions}
+
+## Session Context
+{history_summary}
+
+## Working Memory
+Session ID: {session_id}
+Turn: {turn_number}
+Recent: {recent_summaries}
+Key Info: {key_info}
+Next Checkpoint: {next_checkpoint}
+"""
+
+
 class ContextBuilder:
     def __init__(self, dispatcher: ToolDispatcher, agent_name: str = "Noesis"):
         self._dispatcher = dispatcher
@@ -116,6 +164,32 @@ class ContextBuilder:
             history_summary=history_summary or "(new session)",
             session_id=session_id,
             l1_skills=l1_skills,
+            next_checkpoint=next_checkpoint,
+        )
+
+    def build_exploration_prompt(
+        self,
+        turn_number: int = 0,
+        recent_summaries: str = "(none)",
+        key_info: str = "(no key info yet)",
+        history_summary: str = "",
+        session_id: str = "",
+    ) -> str:
+        next_checkpoint = "HYPOTHESIS at turn 1"
+        if turn_number == 0:
+            next_checkpoint = "HYPOTHESIS at turn 1"
+        elif turn_number > 0 and turn_number % 5 == 0:
+            next_checkpoint = "MIDPOINT review now"
+        elif turn_number > 0:
+            next_checkpoint = f"MIDPOINT review at turn {((turn_number // 5) + 1) * 5}"
+        return EXPLORATION_SYSTEM_PROMPT.format(
+            agent_name=self._agent_name,
+            tool_descriptions=self._tool_descriptions,
+            turn_number=turn_number,
+            recent_summaries=recent_summaries,
+            key_info=key_info,
+            history_summary=history_summary or "(new exploration session)",
+            session_id=session_id,
             next_checkpoint=next_checkpoint,
         )
 

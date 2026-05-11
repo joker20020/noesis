@@ -1,22 +1,15 @@
 {
   "servers": [
     {
-      "name": "filesystem",
+      "name": "test-stdio",
       "transport": "stdio",
-      "command": "npx",
-      "args": ["-y", "@modelcontextprotocol/server-filesystem", "./workspace"]
+      "command": "uv",
+      "args": ["run", "python", "tests/mcp_stdio_server.py"]
     },
     {
-      "name": "fetch",
-      "transport": "stdio",
-      "command": "uvx",
-      "args": ["mcp-server-fetch"]
-    },
-    {
-      "name": "sqlite",
-      "transport": "stdio",
-      "command": "uvx",
-      "args": ["mcp-server-sqlite", "--db-path", "./workspace/data.db"]
+      "name": "test-sse",
+      "transport": "sse",
+      "url": "http://127.0.0.1:8050/sse"
     }
   ]
 }
