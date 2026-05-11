@@ -16,7 +16,26 @@ Recent execution steps:
 
 Summary from user: {summary}
 
-Output ONLY the SKILL.md content in markdown with: ## Overview, ## When to Use, ## Core Pattern (numbered steps with specific tools), ## Common Mistakes."""
+## SOP Quality Standards (follow these, but do not output scores)
+Your output must be a markdown document that is:
+1. **Executable**: Every step maps to a specific tool call or action found in the trace.
+2. **Bounded**: Lists prerequisites, expected inputs, and success criteria.
+3. **Resilient**: Includes "Common Mistakes" and error recovery steps observed in the trace.
+4. **Verifiable**: Each step has an observable output or check.
+
+## Required Sections
+- ## Overview: One sentence on what this SOP achieves.
+- ## When to Use: Specific trigger conditions.
+- ## Prerequisites: Required tools, credentials, or state.
+- ## Core Pattern: Numbered steps, each step must reference a tool/action from the trace.
+- ## Common Mistakes: Observed errors and their fixes.
+- ## Variants (optional): If the trace shows conditional branches, document them.
+
+## Output Format Rules
+- Output ONLY the SKILL.md markdown content.
+- Do NOT include any JSON, scores, or evaluation blocks.
+- The code quality gate checks for: length >= 100 chars AND presence of numbered steps.
+"""
 
 
 class DistillationEngine:
