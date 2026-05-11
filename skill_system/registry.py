@@ -155,3 +155,97 @@ class SkillRegistry:
                    s.updated_at = datetime()""",
             {"sid": skill_id},
         )
+
+    async def sync_skills_dir(self):
+        """Synchronize filesystem skills/ directory with Neo4j database.
+
+        Rules:
+        - FS exists, DB missing → create DB record (read SKILL.md for metadata)
+        - DB exists, FS missing → delete DB record (and detached category if empty)
+        """
+        fs_skills: set[str] = set()
+        if self._skills_dir.exists():
+            for cat_dir in self._skills_dir.iterdir():
+                if not cat_dir.is_dir():
+                    continue
+                category = cat_dir.name
+                for skill_dir in cat_dir.iterdir():
+                    if not skill_dir.is_dir():
+                        continue
+                    skill_md = skill_dir / "SKILL.md"
+                    if skill_md.exists():
+                        skill_id = f"{category}/{skill_dir.name}"
+                        fs_skills.add(skill_id)
+
+        # Query all skills in DB
+        db_records = await self._neo4j.run(
+            "MATCH (s:Skill) RETURN s.skill_id AS sid, s.category AS cat, s.name AS name"
+        )
+        db_skills: dict[str, dict] = {r["sid"]: r for r in db_records}
+
+        # 1. FS exists, DB missing → create
+        created = 0
+        for sid in fs_skills:
+            if sid not in db_skills:
+                parts = sid.split("/", 1)
+                if len(parts) != 2:
+                    continue
+                category, name = parts
+                skill_md_path = self._skills_dir / category / name / "SKILL.md"
+                content = skill_md_path.read_text(encoding="utf-8") if skill_md_path.exists() else ""
+                # Extract description from frontmatter or first heading
+                desc = self._extract_description(content, name)
+                try:
+                    await self.register(
+                        name=name, category=category, description=desc,
+                        stage="NL", create_files=False,
+                    )
+                    created += 1
+                except Exception as e:
+                    print(f"[SkillRegistry] Sync create failed for {sid}: {e}")
+
+        # 2. DB exists, FS missing → delete
+        deleted = 0
+        for sid in db_skills:
+            if sid not in fs_skills:
+                try:
+                    await self.delete(sid)
+                    deleted += 1
+                except Exception as e:
+                    print(f"[SkillRegistry] Sync delete failed for {sid}: {e}")
+
+        # 3. Clean up empty categories
+        cleaned = await self._cleanup_empty_categories()
+
+        if created or deleted or cleaned:
+            print(f"[SkillRegistry] Sync complete: +{created} created, -{deleted} deleted, {cleaned} empty categories removed")
+
+    @staticmethod
+    def _extract_description(content: str, fallback_name: str) -> str:
+        """Extract a short description from SKILL.md frontmatter or first heading."""
+        lines = content.split("\n")
+        # Look for description in YAML frontmatter
+        in_frontmatter = False
+        for line in lines:
+            stripped = line.strip()
+            if stripped == "---":
+                in_frontmatter = not in_frontmatter
+                continue
+            if in_frontmatter and stripped.lower().startswith("description:"):
+                return stripped.split(":", 1)[1].strip()
+        # Look for first # heading
+        for line in lines:
+            if line.strip().startswith("# "):
+                return line.strip()[2:].strip()
+        return f"Auto-synced skill: {fallback_name}"
+
+    async def _cleanup_empty_categories(self) -> int:
+        """Delete SkillCategory nodes that have no skills."""
+        result = await self._neo4j.run(
+            """MATCH (c:SkillCategory)
+               WHERE NOT (c)<-[:BELONGS_TO]-(:Skill)
+               WITH c, count(c) AS cnt
+               DETACH DELETE c
+               RETURN cnt"""
+        )
+        return len(result)

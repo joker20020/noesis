@@ -66,6 +66,8 @@ class AgentEngine:
 
     async def init(self):
         await self.neo4j.init_schema()
+        from skill_system.registry import SkillRegistry
+        await SkillRegistry(self.neo4j, self.config.skills_dir).sync_skills_dir()
         if self.config.mcp_servers:
             self._mcp = McpClientManager(self.config.mcp_servers)
             try:
