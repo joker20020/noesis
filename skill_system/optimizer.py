@@ -5,18 +5,37 @@ from memory.neo4j_client import Neo4jClient
 from llm.base import LlmClient, Message
 
 
-OPTIMIZE_PROMPT = """Compare the current SOP with recent execution traces. Suggest improvements.
+OPTIMIZE_PROMPT = """Compare the SOP with actual execution traces. Detect semantic deviations.
 
 Current SOP:
 {sop_content}
 
-Recent tool execution sequence (tool names in order):
-{tool_sequence}
+Recent execution traces (tool calls with parameters):
+{trace_with_params}
 
-Analyze and output JSON with this exact structure:
-{{"suggestions": ["suggestion 1"], "variant_detected": false, "variant_description": "", "recommended_updates": ""}}
+## Analysis Instructions
+Analyze these dimensions internally, then synthesize your findings:
+1. **Step presence**: Did execution follow all SOP steps? Were any skipped?
+2. **Step order**: Was the sequence different, even if tool names match?
+3. **Parameter drift**: Were tools called with different arguments than SOP specifies?
+4. **New patterns**: Were tools used that aren't in the SOP? Is this a one-off or trend?
+5. **Error handling**: Did execution encounter errors not covered in SOP?
 
-Only suggest changes if there are meaningful differences. If the SOP matches execution well, return empty suggestions."""
+Only suggest changes if evidence is strong (>= 2 occurrences or clear error pattern).
+
+## Output Schema (strict — only these fields)
+{{
+  "suggestions": [
+    "specific, actionable suggestion 1",
+    "specific, actionable suggestion 2"
+  ],
+  "variant_detected": true or false,
+  "variant_description": "if execution systematically diverged from SOP, describe the new pattern",
+  "recommended_updates": "specific markdown text to insert into or modify in the SOP"
+}}
+
+Output ONLY valid JSON. No extra fields.
+"""
 
 
 class SopOptimizer:
@@ -45,7 +64,7 @@ class SopOptimizer:
                 resp = await self._llm.chat([
                     Message.text_msg(role="user", text=OPTIMIZE_PROMPT.format(
                         sop_content=current_sop[:3000],
-                        tool_sequence=" -> ".join(tool_names[-30:]),
+                        trace_with_params=" -> ".join(tool_names[-30:]),
                     ))
                 ])
                 contents = ''.join([c.text if c.type == "text" and c.text else "" for c in resp.content])
