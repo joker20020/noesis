@@ -1,0 +1,49 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+build/
+.venv/
+venv/
+
+# Git
+.git/
+.gitignore
+.gitmodules
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Next.js
+webui/.next/
+webui/node_modules/
+webui/out/
+
+# Runtime data (mounted as volumes)
+workspace/
+skills/
+archives/
+
+# Logs and temp
+*.log
+playwright-report/
+test-results/
+
+# Env (use docker compose env vars or .env file)
+.env
+!.env.example
+
+# Claude / Superpowers
+.superpowers/
+.claude/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# CI / Docker
+.github/
