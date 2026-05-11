@@ -17,7 +17,7 @@ def format_event(event: dict, platform: str = "generic") -> str | None:
         if btype == "thinking":
             t = block.get("thinking", "")
             if t:
-                parts.append(f"🤔 {_truncate(t, 800)}")
+                parts.append(f"🤔 {_truncate(t, 1000)}\n")
         elif btype == "text":
             t = block.get("text", "")
             if t:
