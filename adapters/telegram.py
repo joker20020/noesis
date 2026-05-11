@@ -1,6 +1,8 @@
 """Telegram Bot adapter — python-telegram-bot, polling mode."""
 import asyncio
 
+from adapters.formatters import format_event
+
 try:
     from telegram import Update
     from telegram.ext import ApplicationBuilder, MessageHandler, CommandHandler, filters, ContextTypes
@@ -36,9 +38,17 @@ class TelegramAdapter:
             if not text.strip():
                 return
             await ctx.bot.send_chat_action(chat_id=update.effective_chat.id, action="typing")
-            result = await self._engine.run(text)
-            for i in range(0, len(result), 4000):
-                await update.message.reply_text(result[i:i+4000])
+
+            async def on_event(event):
+                txt = format_event(event, platform="telegram")
+                if txt:
+                    for i in range(0, len(txt), 4000):
+                        await update.message.reply_text(txt[i:i+4000])
+
+            result = await self._engine.run(text, on_event=on_event)
+            if result and result not in ("[Interrupted]", "Max rounds reached."):
+                for i in range(0, len(result), 4000):
+                    await update.message.reply_text(result[i:i+4000])
 
         async def cmd_start(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text("Noesis ready. Commands: /new (reset), /stop (abort).")

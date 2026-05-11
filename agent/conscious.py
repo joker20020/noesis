@@ -212,47 +212,66 @@ class ConsciousLoop:
             # Build round blocks for single-step DB save
             round_blocks: list[dict] = []
 
-            # Thought — preserve original block types from API
-            if response.content and response.tool_calls:
-                self._history.append(Message(role="assistant", content=response.content))
+            # --- Emit structured intermediate events ---
+            async def _emit(event: dict):
+                if on_event:
+                    await on_event(event)
+
+            # Assistant content blocks (thinking + text)
+            assistant_blocks = []
+            thinking_parts: list[str] = []
+            text_parts: list[str] = []
+            if response.content:
                 for b in response.content:
                     if b.type == "thinking":
-                        round_blocks.append({"type": "thinking", "thinking": b.thinking or ""})
+                        assistant_blocks.append({"type": "thinking", "thinking": b.thinking or ""})
+                        if b.thinking:
+                            thinking_parts.append(b.thinking)
                     elif b.type == "text":
-                        round_blocks.append({"type": "text", "text": b.text or ""})
-                if on_event:
-                    display = "".join(b.text or b.thinking or "" for b in response.content)
-                    await on_event({"type": "message", "content": display})
-                if not is_ephemeral and round_blocks:
-                    step_id = await self._create_step("noesis", "assistant", round_blocks)
-                    self._step_ids.append(step_id)
-                else:
-                    self._step_ids.append(None)
+                        assistant_blocks.append({"type": "text", "text": b.text or ""})
+                        if b.text:
+                            text_parts.append(b.text)
+
+            if thinking_parts:
+                await _emit({"type": "thinking", "content": "\n".join(thinking_parts)})
+            if text_parts:
+                await _emit({"type": "text", "content": "\n".join(text_parts)})
 
             # Task complete
             if not response.tool_calls:
                 self._history.append(Message(role="assistant", content=response.content))
-                for b in response.content:
-                    if b.type == "thinking":
-                        round_blocks.append({"type": "thinking", "thinking": b.thinking or ""})
-                    elif b.type == "text":
-                        round_blocks.append({"type": "text", "text": b.text or ""})
+                for b in assistant_blocks:
+                    round_blocks.append(b)
                 if not is_ephemeral and round_blocks:
                     step_id = await self._create_step("noesis", "assistant", round_blocks)
                     self._step_ids.append(step_id)
                 else:
                     self._step_ids.append(None)
                 display = "".join(b.text or "" for b in response.content if b.type == "text") or "Task completed."
-                if on_event:
-                    await on_event({"type": "message", "content": display})
+                await _emit({"type": "done", "content": display})
+                # Legacy event for backward compatibility
+                await _emit({"type": "message", "content": display})
                 if not is_ephemeral:
                     await self._finalize_session()
                 return display
+
+            # Tool calls pending — save assistant reasoning first
+            if response.content:
+                self._history.append(Message(role="assistant", content=response.content))
+                for b in assistant_blocks:
+                    round_blocks.append(b)
+                if not is_ephemeral and round_blocks:
+                    step_id = await self._create_step("noesis", "assistant", round_blocks)
+                    self._step_ids.append(step_id)
+                else:
+                    self._step_ids.append(None)
 
             # Action + Observation (all tool calls)
             for tc in response.tool_calls:
                 if self._aborted:
                     return "[Interrupted]"
+
+                await _emit({"type": "tool_use", "name": tc.name, "arguments": tc.arguments})
 
                 result = await self._dispatcher.dispatch(DispatchToolCall(id=tc.id, name=tc.name, arguments=tc.arguments))
                 truncated = self._compression.stage1_tool_output(tc.name, result.output)
@@ -274,8 +293,7 @@ class ConsciousLoop:
                     ContentBlock(type="tool_result", tool_call_id=tc.id, name=tc.name, output=truncated)]))
                 self._step_ids.append(step_id_result)
 
-                if on_event:
-                    await on_event({"type": "tool_result", "name": tc.name, "content": truncated})
+                await _emit({"type": "tool_result", "name": tc.name, "content": truncated})
 
             raw = [_msg_to_dict(m) for m in self._history]
             if self._compression._char_count(raw) > self._compression.budget:

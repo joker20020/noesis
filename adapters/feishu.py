@@ -2,6 +2,8 @@
 import asyncio
 import json
 
+from adapters.formatters import format_event
+
 try:
     import lark_oapi as lark
     from lark_oapi.api.im.v1 import *
@@ -61,8 +63,20 @@ class _FeishuHandler(lark.ws.EventHandler):
                 CreateMessageRequestBody.builder().msg_type("text").content(json.dumps({"text": "会话已重置"})).build()).build())
             return
 
-        result = await self._engine.run(text)
-        # Split and reply
+        async def on_event(event):
+            txt = format_event(event, platform="feishu")
+            if txt:
+                req = CreateMessageRequest.builder() \
+                    .receive_id_type("chat_id") \
+                    .request_body(CreateMessageRequestBody.builder()
+                        .msg_type("text")
+                        .content(json.dumps({"text": txt[:4000]}))
+                        .build()) \
+                    .build()
+                await ctx.do(req)
+
+        result = await self._engine.run(text, on_event=on_event)
+        # Split and reply final result
         for i in range(0, len(result), 4000):
             reply = result[i:i+4000]
             req = CreateMessageRequest.builder() \

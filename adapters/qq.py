@@ -4,6 +4,8 @@ import threading
 import time
 from collections import deque
 
+from adapters.formatters import merge_events
+
 try:
     import botpy
     from botpy.message import C2CMessage, GroupMessage
@@ -118,7 +120,15 @@ class QQAdapter:
             await self._send_reply(message, "已停止", user_id, is_group)
             return
 
-        result = await self._engine.run(content)
+        event_buffer: list[dict] = []
+
+        async def on_event(event):
+            event_buffer.append(event)
+
+        result = await self._engine.run(content, on_event=on_event)
+        merged = merge_events(event_buffer, platform="qq")
+        for chunk in merged:
+            await self._send_reply(message, chunk, user_id, is_group)
         await self._send_reply(message, result, user_id, is_group)
 
     async def _send_reply(self, message, text: str, user_id: str, is_group: bool):

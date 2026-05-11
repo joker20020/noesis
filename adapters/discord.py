@@ -1,6 +1,8 @@
 """Discord Bot adapter — discord.py gateway, prefix commands."""
 import asyncio
 
+from adapters.formatters import format_event
+
 try:
     import discord
     from discord.ext import commands
@@ -57,9 +59,16 @@ class DiscordAdapter:
                 return
 
             async with message.channel.typing():
-                result = await self._engine.run(text)
-                for i in range(0, len(result), 1900):
-                    await message.reply(result[i:i+1900])
+                async def on_event(event):
+                    text = format_event(event, platform="discord")
+                    if text:
+                        for i in range(0, len(text), 1900):
+                            await message.channel.send(text[i:i+1900])
+
+                result = await self._engine.run(text, on_event=on_event)
+                if result and result not in ("[Interrupted]", "Max rounds reached."):
+                    for i in range(0, len(result), 1900):
+                        await message.reply(result[i:i+1900])
 
         await self._client.start(self._token)
 
