@@ -29,8 +29,13 @@ def count_chars(text: str) -> str:
 
 
 if __name__ == "__main__":
-    import sys
+    # FastMCP SSE uses settings.port (default 8000) and settings.host (default 127.0.0.1)
+    # Override via environment: MCP_PORT=9000 uv run python tests/mcp_sse_server.py
+    import os
 
-    port = int(sys.argv[1]) if len(sys.argv) > 1 else 8080
-    print(f"[MCP SSE] Starting on http://localhost:{port}/sse")
-    mcp.run(transport="sse", port=port, host="127.0.0.1")
+    # custom_port = os.getenv("MCP_PORT")
+    custom_port = 8050
+    if custom_port:
+        mcp.settings.port = int(custom_port)
+    print(f"[MCP SSE] Starting on http://{mcp.settings.host}:{mcp.settings.port}/sse")
+    mcp.run(transport="sse")

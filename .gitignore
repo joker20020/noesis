@@ -20,8 +20,8 @@ Thumbs.db
 # Secrets & Config
 .env
 !.env.example
-.mcp.json
-!.mcp.json.example
+mcp.json
+!mcp.json.example
 
 # Neo4j
 neo4j_data/
