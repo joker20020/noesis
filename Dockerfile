@@ -28,6 +28,7 @@ RUN mkdir -p workspace skills archives
 
 # Use venv directly
 ENV PATH="/app/.venv/bin:$PATH"
+ENV PYTHONUNBUFFERED=1
 
 EXPOSE 8000
 

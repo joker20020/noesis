@@ -73,6 +73,10 @@ async def _start_adapters():
 async def lifespan(app: FastAPI):
     global _engine, _adapter_tasks
     config = Config()
+    # Diagnostic: print all platform adapter states
+    p = config.platform
+    print(f"[Server] Adapter config — WeChat:{p.wechat_enabled} QQ:{p.qq_enabled} "
+          f"Telegram:{p.telegram_enabled} Discord:{p.discord_enabled} Feishu:{p.feishu_enabled}")
     _engine = AgentEngine(config)
     try:
         await _engine.init()
