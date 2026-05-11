@@ -1,4 +1,17 @@
+import json
+from pathlib import Path
+
+from pydantic import BaseModel, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+
+class McpServerConfig(BaseModel):
+    name: str
+    transport: str = "stdio"
+    command: str | None = None
+    args: list[str] = []
+    url: str | None = None
+    env: dict[str, str] = {}
 
 
 class LLMConfig(BaseSettings):
@@ -66,3 +79,25 @@ class Config(BaseSettings):
     subconscious_timer_seconds: int = 1800
     web_host: str = "127.0.0.1"
     web_port: int = 8000
+    mcp_servers: list[McpServerConfig] = []
+
+    @model_validator(mode="after")
+    def _load_mcp_json(self):
+        """Load MCP server config from mcp.json if present.
+
+        mcp.json takes precedence over the NOESIS_MCP_SERVERS env var,
+        making it easier to manage multi-server configurations.
+        For Docker, mount mcp.json as a volume.
+        """
+        mcp_path = Path("mcp.json")
+        if not mcp_path.exists():
+            return self
+        try:
+            data = json.loads(mcp_path.read_text(encoding="utf-8"))
+            servers = data.get("servers", [])
+            if servers:
+                self.mcp_servers = [McpServerConfig(**s) for s in servers]
+                print(f"[Config] Loaded {len(servers)} MCP servers from mcp.json")
+        except Exception as e:
+            print(f"[Config] Failed to load mcp.json: {e}")
+        return self

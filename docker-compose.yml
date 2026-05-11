@@ -64,6 +64,8 @@ services:
       - workspace_data:/app/workspace
       - skills_data:/app/skills
       - archives_data:/app/archives
+      # Mount mcp.json to configure MCP servers (copy mcp.json.example to mcp.json first)
+      - ./mcp.json:/app/mcp.json:ro
     depends_on:
       neo4j:
         condition: service_healthy

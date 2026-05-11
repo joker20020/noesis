@@ -18,6 +18,7 @@ from tools.ask_user import AskUserTool
 from tools.subagent import SubagentTool
 from agent.conscious import ConsciousLoop
 from agent.subconscious import SubconsciousLoop
+from tools.mcp_client import McpClientManager
 
 FIXED_SESSION = "noesis"
 
@@ -42,6 +43,7 @@ class AgentEngine:
         )
         self._subconscious = SubconsciousLoop(self.neo4j, config, self.llm, self.dispatcher)
         self._sub_task = None
+        self._mcp = None
 
     def _register_tools(self):
         self.dispatcher.register(FileReadTool())
@@ -64,6 +66,13 @@ class AgentEngine:
 
     async def init(self):
         await self.neo4j.init_schema()
+        if self.config.mcp_servers:
+            self._mcp = McpClientManager(self.config.mcp_servers)
+            try:
+                await self._mcp.initialize()
+                self.dispatcher.set_mcp(self._mcp)
+            except Exception as e:
+                print(f"[MCP] Initialization failed: {e}")
         self._sub_task = asyncio.create_task(self._subconscious.start())
 
     async def run(self, user_input: str,
@@ -99,6 +108,11 @@ class AgentEngine:
             try:
                 await self._sub_task
             except asyncio.CancelledError:
+                pass
+        if self._mcp is not None:
+            try:
+                await self._mcp.cleanup()
+            except Exception:
                 pass
         try:
             await self._web_scan_tool.close()
