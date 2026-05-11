@@ -222,10 +222,10 @@ class ConsciousLoop:
             assistant_blocks = []
             if response.content:
                 for b in response.content:
-                    if b.type == "thinking":
-                        assistant_blocks.append({"type": "thinking", "thinking": b.thinking or ""})
-                    elif b.type == "text":
-                        assistant_blocks.append({"type": "text", "text": b.text or ""})
+                    if b.type == "thinking" and b.thinking:
+                        assistant_blocks.append({"type": "thinking", "thinking": b.thinking})
+                    elif b.type == "text" and b.text:
+                        assistant_blocks.append({"type": "text", "text": b.text})
 
             # Emit assistant reasoning as a unified message
             if assistant_blocks:
@@ -242,6 +242,11 @@ class ConsciousLoop:
                 else:
                     self._step_ids.append(None)
                 display = "".join(b.text or "" for b in response.content if b.type == "text") or "Task completed."
+                # Fallback: if no blocks were emitted (empty content), emit display directly
+                if not assistant_blocks:
+                    await _emit({"type": "message", "role": "assistant", "content": [
+                        {"type": "text", "text": display}
+                    ]})
                 if not is_ephemeral:
                     await self._finalize_session()
                 return display
