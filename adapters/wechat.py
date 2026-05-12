@@ -314,8 +314,8 @@ class WeChatAdapter:
                 if msg_count >= 10 or not text_piece.strip():
                     return False
                 now = time.time()
-                if msg_count > 0 and now - last_send_time < 3 * msg_count:
-                    await asyncio.sleep(3 * msg_count - (now - last_send_time))
+                if msg_count > 0 and now - last_send_time < 6 * msg_count:
+                    await asyncio.sleep(6 * msg_count - (now - last_send_time))
                 for attempt in range(3):
                     try:
                         d = await self._send_text(uid, text_piece[:2000], ctx if use_ctx and msg_count == 0 else "")
@@ -329,12 +329,12 @@ class WeChatAdapter:
                             print(f"[WeChat] send_text ret=2 (dropped): {d.get('msg')}")
                             return False
                         # Other ret codes — backoff and retry
-                        wait = 3 * (2 ** attempt)
+                        wait = 6 * (2 ** attempt)
                         print(f"[WeChat] send_text ret={ret} msg={d.get('msg')}, retry in {wait}s...")
                         await asyncio.sleep(wait)
                     except Exception as e:
-                        print(f"[WeChat] send_text exception: {e}, retry in {3*(2**attempt)}s...")
-                        await asyncio.sleep(3 * (2 ** attempt))
+                        print(f"[WeChat] send_text exception: {e}, retry in {6*(2**attempt)}s...")
+                        await asyncio.sleep(6 * (2 ** attempt))
                 return False
 
             for i in range(0, len(txt), 2000):
