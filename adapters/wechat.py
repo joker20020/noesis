@@ -296,11 +296,11 @@ class WeChatAdapter:
 
         # Run agent with real-time event streaming
         msg_count = 0
-        last_send_time = 0
+        last_send_time = time.time()
 
         async def _throttled_send(text_piece: str, use_ctx: bool = True) -> bool:
             nonlocal msg_count, last_send_time
-            # GenericAgent-style conservative throttling to avoid ret=2 / frequency limits
+            # GenericAgent-style conservative throttling to avoid ret=-2 / frequency limits
             if msg_count >= 100 or not text_piece.strip():
                 return False
             now = time.time()
@@ -314,16 +314,16 @@ class WeChatAdapter:
                         msg_count += 1
                         last_send_time = time.time()
                         return True
-                    if ret == 2:
-                        print(f"[WeChat] send_text ret=2 (dropped): {d.get('msg')}")
+                    if ret == -2:
+                        print(f"[WeChat] send_text ret=-2 (dropped): {d.get('msg')}")
                         return False
                     # Other ret codes — backoff and retry
-                    wait = 6 * (2 ** attempt)
+                    wait = 6 * (4 ** attempt)
                     print(f"[WeChat] send_text ret={ret} msg={d.get('msg')}, retry in {wait}s...")
                     await asyncio.sleep(wait)
                 except Exception as e:
-                    print(f"[WeChat] send_text exception: {e}, retry in {6*(2**attempt)}s...")
-                    await asyncio.sleep(6 * (2 ** attempt))
+                    print(f"[WeChat] send_text exception: {e}, retry in {6*(4**attempt)}s...")
+                    await asyncio.sleep(6 * (4 ** attempt))
             return False
 
         async def on_event(event):

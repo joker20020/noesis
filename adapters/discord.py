@@ -1,6 +1,6 @@
 """Discord Bot adapter — discord.py gateway, prefix commands."""
 import asyncio
-
+import time
 from adapters.formatters import format_event
 
 try:
@@ -60,7 +60,7 @@ class DiscordAdapter:
 
             async with message.channel.typing():
                 msg_count = 0
-                last_send_time = 0
+                last_send_time = time.time()
 
                 async def on_event(event):
                     nonlocal msg_count, last_send_time

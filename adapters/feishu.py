@@ -130,7 +130,7 @@ class _FeishuHandler(lark.ws.EventHandler):
         await card.start()
 
         msg_count = 0
-        last_send_time = 0
+        last_send_time = time.time()
 
         async def on_event(agent_event):
             nonlocal msg_count, last_send_time

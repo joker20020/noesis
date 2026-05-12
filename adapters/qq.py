@@ -121,7 +121,7 @@ class QQAdapter:
             return
         
         msg_count = 0
-        last_send_time = 0
+        last_send_time = time.time()
 
         async def _throttled_send(text_piece: str) -> bool:
             nonlocal msg_count, last_send_time
