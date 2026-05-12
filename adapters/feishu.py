@@ -143,8 +143,8 @@ class _FeishuHandler(lark.ws.EventHandler):
                     piece = txt[i:i + 5000]
                     if msg_count > 0:
                         now = time.time()
-                        if now - last_send_time < 0.5 * msg_count:
-                            await asyncio.sleep(0.5 * msg_count - (now - last_send_time))
+                        if now - last_send_time < 3:
+                            await asyncio.sleep(3 - (now - last_send_time))
                     await self._send_text(ctx, receive_id, piece, receive_id_type=rid_type)
                     msg_count += 1
                     last_send_time = time.time()

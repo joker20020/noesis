@@ -55,7 +55,9 @@ def should_skip_for_platform(event: dict, platform: str) -> bool:
     has_meaningful = False
     for block in content:
         btype = block.get("type")
-        if btype == "thinking" and len(block.get("thinking", "")) >= 2:
+        if btype in ("tool_use", "tool_result") and platform == "wechat":
+            return True
+        if btype == "thinking" and len(block.get("thinking", "")) >= 1:
             has_meaningful = True
         elif btype in ("text", "tool_use", "tool_result"):
             has_meaningful = True

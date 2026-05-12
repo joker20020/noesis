@@ -122,7 +122,7 @@ class WeChatAdapter:
         body = {
             "msg": {
                 "from_user_id": "", "to_user_id": to_user,
-                "client_id": f"py-{uuid.uuid4().hex[:8]}",
+                "client_id": f"neosis-{uuid.uuid4().hex}",
                 "message_type": MSG_BOT, "message_state": STATE_FINISH,
                 "context_token": ctx,
                 "item_list": [{"type": ITEM_TEXT, "text_item": {"text": text}}],
@@ -130,6 +130,24 @@ class WeChatAdapter:
             "base_info": {"channel_version": VER},
         }
         return await self._post("ilink/bot/sendmessage", body)
+    
+    async def _send_typing(self, to_user, is_typing=True, ctx=""):
+        config = await self._post("ilink/bot/getconfig", 
+                                    {
+                                        "ilink_user_id": to_user,
+                                        "context_token": ctx,
+                                        "base_info": {"channel_version": VER}
+                                    }
+                                  )
+        
+        if config.get("typing_ticket", ""):
+            await self._post("ilink/bot/sendtyping", {
+                "ilink_user_id": to_user,
+                "typing_ticket": config.get("typing_ticket", ""),
+                "status": 1 if is_typing else 2,
+                "context_token": ctx,
+                "base_info": {"channel_version": VER}
+            })
 
     # ── media helpers ──
     @staticmethod
@@ -304,11 +322,11 @@ class WeChatAdapter:
             if msg_count >= 100 or not text_piece.strip():
                 return False
             now = time.time()
-            if msg_count > 0 and now - last_send_time < 6 * msg_count:
-                await asyncio.sleep(6 * msg_count - (now - last_send_time))
+            if msg_count > 0 and now - last_send_time < 6:
+                await asyncio.sleep(6 - (now - last_send_time))
             for attempt in range(3):
                 try:
-                    d = await self._send_text(uid, text_piece[:2000], ctx if use_ctx and msg_count == 0 else "")
+                    d = await self._send_text(uid, text_piece, ctx if use_ctx else "")
                     ret = d.get("ret", 0)
                     if ret == 0:
                         msg_count += 1
@@ -335,10 +353,13 @@ class WeChatAdapter:
 
             for i in range(0, len(txt), 2000):
                 piece = txt[i:i + 2000]
-                await _throttled_send(piece, use_ctx=(i == 0))
+                await _throttled_send(piece)
+
+        await self._send_typing(uid, True, ctx)
 
         result = await self._engine.run(text, on_event=on_event)
         print(f"[WeChat] Reply streamed ({msg_count} msgs)")
+        await self._send_typing(uid, False, ctx)
 
         # Send files if referenced in final result
         for m in re.finditer(r'\[FILE:([^\]]+)\]', result):
