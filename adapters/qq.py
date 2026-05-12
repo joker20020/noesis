@@ -141,14 +141,18 @@ class QQAdapter:
                 if msg_count > 0 and now - last_send_time < 2:
                     await asyncio.sleep(2 - (now - last_send_time))
                     now = time.time()
-                try:
-                    await self._send_reply(message, text_piece, user_id, is_group)
-                    msg_count += 1
-                    total_msg_count += 1
-                    last_send_time = now
-                    return True
-                except Exception:
-                    return False
+                for attempt in range(3):
+                    try:
+                        await self._send_reply(message, text_piece, user_id, is_group)
+                        msg_count += 1
+                        total_msg_count += 1
+                        last_send_time = time.time()
+                        return True
+                    except Exception as e:
+                        wait = 2 * (2 ** attempt)
+                        print(f"[QQ] send_reply failed: {e}, retry in {wait}s...")
+                        await asyncio.sleep(wait)
+                return False
 
             for i in range(0, len(txt), 2500):
                 piece = txt[i:i + 2500]
