@@ -114,6 +114,9 @@ class AgentEngine:
         self._loop._turn_count = 0
         self._loop._last_20_summaries.clear()
         self._loop._history_summary = ""
+        self._loop._step_ids.clear()
+        self._loop._last_step_id = None
+        self._loop._step_index = 0
 
     async def restart_session(self):
         """Clear DB records + in-memory history. Full restart."""
