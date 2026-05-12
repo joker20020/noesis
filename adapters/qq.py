@@ -135,12 +135,11 @@ class QQAdapter:
 
             async def _throttled_send(text_piece: str) -> bool:
                 nonlocal msg_count, last_send_time, total_msg_count
-                if msg_count >= 20 or not text_piece.strip():
+                if msg_count >= 10 or not text_piece.strip():
                     return False
                 now = time.time()
-                if msg_count > 0 and now - last_send_time < 2:
-                    await asyncio.sleep(2 - (now - last_send_time))
-                    now = time.time()
+                if msg_count > 0 and now - last_send_time < 2 * msg_count:
+                    await asyncio.sleep(2 * msg_count - (now - last_send_time))
                 for attempt in range(3):
                     try:
                         await self._send_reply(message, text_piece, user_id, is_group)

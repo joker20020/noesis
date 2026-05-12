@@ -310,32 +310,35 @@ class WeChatAdapter:
 
             async def _throttled_send(text_piece: str, use_ctx: bool = True) -> bool:
                 nonlocal msg_count, last_send_time, total_msg_count
-                if msg_count >= 20 or not text_piece.strip():
+                # GenericAgent-style conservative throttling to avoid ret=2 / frequency limits
+                if msg_count >= 10 or not text_piece.strip():
                     return False
                 now = time.time()
-                # Global rate limit: at least 3s between any two messages to avoid WeChat frequency limits
-                if msg_count > 0 and now - last_send_time < 3:
-                    await asyncio.sleep(3 - (now - last_send_time))
-                    now = time.time()
+                if msg_count > 0 and now - last_send_time < 3 * msg_count:
+                    await asyncio.sleep(3 * msg_count - (now - last_send_time))
                 for attempt in range(3):
                     try:
-                        d = await self._send_text(uid, text_piece, ctx if use_ctx and msg_count == 0 else "")
-                        if d.get("ret", 0) == 0:
+                        d = await self._send_text(uid, text_piece[:2000], ctx if use_ctx and msg_count == 0 else "")
+                        ret = d.get("ret", 0)
+                        if ret == 0:
                             msg_count += 1
                             total_msg_count += 1
                             last_send_time = time.time()
                             return True
-                        # WeChat may return frequency-limit errors; backoff and retry
+                        if ret == 2:
+                            print(f"[WeChat] send_text ret=2 (dropped): {d.get('msg')}")
+                            return False
+                        # Other ret codes — backoff and retry
                         wait = 3 * (2 ** attempt)
-                        print(f"[WeChat] send_text ret={d.get('ret')} msg={d.get('msg')}, retry in {wait}s...")
+                        print(f"[WeChat] send_text ret={ret} msg={d.get('msg')}, retry in {wait}s...")
                         await asyncio.sleep(wait)
                     except Exception as e:
                         print(f"[WeChat] send_text exception: {e}, retry in {3*(2**attempt)}s...")
                         await asyncio.sleep(3 * (2 ** attempt))
                 return False
 
-            for i in range(0, len(txt), 3000):
-                piece = txt[i:i + 3000]
+            for i in range(0, len(txt), 2000):
+                piece = txt[i:i + 2000]
                 await _throttled_send(piece, use_ctx=(i == 0))
 
         result = await self._engine.run(text, on_event=on_event)

@@ -62,6 +62,7 @@ Note: L0 history is auto-embedded in conversation — no tool call needed.
 ```
 
 If reusable_knowledge is "yes", call the appropriate evolution tool immediately.
+You Must summarize what you have done as the last response before ending the session, even if user doesn't explicitly ask for it.
 
 ## Available Tools
 {tool_descriptions}

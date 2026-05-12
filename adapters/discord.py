@@ -59,12 +59,23 @@ class DiscordAdapter:
                 return
 
             async with message.channel.typing():
+                msg_count = 0
+                last_send_time = 0
+
                 async def on_event(event):
+                    nonlocal msg_count, last_send_time
                     try:
                         text = format_event(event, platform="discord")
                         if text:
                             for i in range(0, len(text), 2000):
-                                await message.channel.send(text[i:i+2000])
+                                piece = text[i:i+2000]
+                                if msg_count > 0:
+                                    now = time.time()
+                                    if now - last_send_time < 0.5 * msg_count:
+                                        await asyncio.sleep(0.5 * msg_count - (now - last_send_time))
+                                await message.channel.send(piece)
+                                msg_count += 1
+                                last_send_time = time.time()
                     except Exception as e:
                         print(f"[DiscordAdapter] on_event failed: {e}")
 

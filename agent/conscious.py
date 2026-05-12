@@ -304,9 +304,9 @@ class ConsciousLoop:
                 if self._aborted:
                     return "[Interrupted]"
 
-                await _emit({"type": "message", "role": "assistant", "content": [
-                    {"type": "tool_use", "id": tc.id, "name": tc.name, "input": tc.arguments}
-                ]})
+                # await _emit({"type": "message", "role": "assistant", "content": [
+                #     {"type": "tool_use", "id": tc.id, "name": tc.name, "input": tc.arguments}
+                # ]})
 
                 result = await self._dispatcher.dispatch(DispatchToolCall(id=tc.id, name=tc.name, arguments=tc.arguments))
                 truncated = self._compression.stage1_tool_output(tc.name, result.output)

@@ -11,30 +11,36 @@ def format_event(event: dict, platform: str = "generic") -> str | None:
     if not content:
         return None
 
+    # If thinking coexists with text, label text so they don't blur together.
+    has_thinking = any(b.get("type") == "thinking" and b.get("thinking") for b in content)
+
     parts = []
     for block in content:
         btype = block.get("type")
         if btype == "thinking":
             t = block.get("thinking", "")
             if t:
-                parts.append(f"🤔 {_truncate(t, 1000)}\n")
+                parts.append(f"💭 思考过程\n{_truncate(t, 1000)}")
         elif btype == "text":
             t = block.get("text", "")
             if t:
-                parts.append(t)
+                if has_thinking:
+                    parts.append(f"📝 回复\n{t}")
+                else:
+                    parts.append(t)
         elif btype == "tool_use":
             name = block.get("name", "tool")
             inp = block.get("input", {})
             args_str = json.dumps(inp, ensure_ascii=False)[:300]
-            parts.append(f"🔧 {name}({args_str})")
+            parts.append(f"🔧 调用工具: {name}\n参数: {args_str}")
         elif btype == "tool_result":
             name = block.get("name", "tool")
             out = _truncate(block.get("output", ""), 1000)
-            parts.append(f"📤 {name}: {out}")
+            parts.append(f"📤 工具结果: {name}\n{out}")
 
     if not parts:
         return None
-    return "\n".join(parts)
+    return "\n\n".join(parts)
 
 
 def should_skip_for_platform(event: dict, platform: str) -> bool:

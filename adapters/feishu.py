@@ -63,18 +63,30 @@ class _FeishuHandler(lark.ws.EventHandler):
                 CreateMessageRequestBody.builder().msg_type("text").content(json.dumps({"text": "会话已重置"})).build()).build())
             return
 
+        msg_count = 0
+        last_send_time = 0
+
         async def on_event(event):
+            nonlocal msg_count, last_send_time
             try:
                 txt = format_event(event, platform="feishu")
                 if txt:
-                    req = CreateMessageRequest.builder() \
-                        .receive_id_type("chat_id") \
-                        .request_body(CreateMessageRequestBody.builder()
-                            .msg_type("text")
-                            .content(json.dumps({"text": txt[:5000]}))
-                            .build()) \
-                        .build()
-                    await ctx.do(req)
+                    for i in range(0, len(txt), 5000):
+                        piece = txt[i:i+5000]
+                        if msg_count > 0:
+                            now = time.time()
+                            if now - last_send_time < 0.5 * msg_count:
+                                await asyncio.sleep(0.5 * msg_count - (now - last_send_time))
+                        req = CreateMessageRequest.builder() \
+                            .receive_id_type("chat_id") \
+                            .request_body(CreateMessageRequestBody.builder()
+                                .msg_type("text")
+                                .content(json.dumps({"text": piece}))
+                                .build()) \
+                            .build()
+                        await ctx.do(req)
+                        msg_count += 1
+                        last_send_time = time.time()
             except Exception as e:
                 print(f"[FeishuAdapter] on_event failed: {e}")
 

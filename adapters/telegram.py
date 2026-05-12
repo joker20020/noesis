@@ -39,12 +39,23 @@ class TelegramAdapter:
                 return
             await ctx.bot.send_chat_action(chat_id=update.effective_chat.id, action="typing")
 
+            msg_count = 0
+            last_send_time = 0
+
             async def on_event(event):
+                nonlocal msg_count, last_send_time
                 try:
                     txt = format_event(event, platform="telegram")
                     if txt:
                         for i in range(0, len(txt), 4096):
-                            await update.message.reply_text(txt[i:i+4096])
+                            piece = txt[i:i+4096]
+                            if msg_count > 0:
+                                now = time.time()
+                                if now - last_send_time < 0.5 * msg_count:
+                                    await asyncio.sleep(0.5 * msg_count - (now - last_send_time))
+                            await update.message.reply_text(piece)
+                            msg_count += 1
+                            last_send_time = time.time()
                 except Exception as e:
                     print(f"[TelegramAdapter] on_event failed: {e}")
 
