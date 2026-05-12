@@ -295,7 +295,36 @@ class WeChatAdapter:
             await self._send_text(uid, "会话已重置", ctx); return
 
         # Run agent with real-time event streaming
-        total_msg_count = 0
+        msg_count = 0
+        last_send_time = 0
+
+        async def _throttled_send(text_piece: str, use_ctx: bool = True) -> bool:
+            nonlocal msg_count, last_send_time
+            # GenericAgent-style conservative throttling to avoid ret=2 / frequency limits
+            if msg_count >= 100 or not text_piece.strip():
+                return False
+            now = time.time()
+            if msg_count > 0 and now - last_send_time < 6 * msg_count:
+                await asyncio.sleep(6 * msg_count - (now - last_send_time))
+            for attempt in range(3):
+                try:
+                    d = await self._send_text(uid, text_piece[:2000], ctx if use_ctx and msg_count == 0 else "")
+                    ret = d.get("ret", 0)
+                    if ret == 0:
+                        msg_count += 1
+                        last_send_time = time.time()
+                        return True
+                    if ret == 2:
+                        print(f"[WeChat] send_text ret=2 (dropped): {d.get('msg')}")
+                        return False
+                    # Other ret codes — backoff and retry
+                    wait = 6 * (2 ** attempt)
+                    print(f"[WeChat] send_text ret={ret} msg={d.get('msg')}, retry in {wait}s...")
+                    await asyncio.sleep(wait)
+                except Exception as e:
+                    print(f"[WeChat] send_text exception: {e}, retry in {6*(2**attempt)}s...")
+                    await asyncio.sleep(6 * (2 ** attempt))
+            return False
 
         async def on_event(event):
             if should_skip_for_platform(event, "wechat"):
@@ -304,45 +333,12 @@ class WeChatAdapter:
             if not txt:
                 return
 
-            nonlocal total_msg_count
-            msg_count = 0
-            last_send_time = 0
-
-            async def _throttled_send(text_piece: str, use_ctx: bool = True) -> bool:
-                nonlocal msg_count, last_send_time, total_msg_count
-                # GenericAgent-style conservative throttling to avoid ret=2 / frequency limits
-                if msg_count >= 10 or not text_piece.strip():
-                    return False
-                now = time.time()
-                if msg_count > 0 and now - last_send_time < 6 * msg_count:
-                    await asyncio.sleep(6 * msg_count - (now - last_send_time))
-                for attempt in range(3):
-                    try:
-                        d = await self._send_text(uid, text_piece[:2000], ctx if use_ctx and msg_count == 0 else "")
-                        ret = d.get("ret", 0)
-                        if ret == 0:
-                            msg_count += 1
-                            total_msg_count += 1
-                            last_send_time = time.time()
-                            return True
-                        if ret == 2:
-                            print(f"[WeChat] send_text ret=2 (dropped): {d.get('msg')}")
-                            return False
-                        # Other ret codes — backoff and retry
-                        wait = 6 * (2 ** attempt)
-                        print(f"[WeChat] send_text ret={ret} msg={d.get('msg')}, retry in {wait}s...")
-                        await asyncio.sleep(wait)
-                    except Exception as e:
-                        print(f"[WeChat] send_text exception: {e}, retry in {6*(2**attempt)}s...")
-                        await asyncio.sleep(6 * (2 ** attempt))
-                return False
-
             for i in range(0, len(txt), 2000):
                 piece = txt[i:i + 2000]
                 await _throttled_send(piece, use_ctx=(i == 0))
 
         result = await self._engine.run(text, on_event=on_event)
-        print(f"[WeChat] Reply streamed ({total_msg_count} msgs)")
+        print(f"[WeChat] Reply streamed ({msg_count} msgs)")
 
         # Send files if referenced in final result
         for m in re.finditer(r'\[FILE:([^\]]+)\]', result):
